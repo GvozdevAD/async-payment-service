@@ -4,8 +4,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import (
+    Database,
     close_db,
     get_async_sessionmaker,
+    get_database,
     get_engine,
     get_session,
     init_db,
@@ -18,6 +20,14 @@ async def reset_db_state() -> None:
     await close_db()
     yield
     await close_db()
+
+
+def test_get_database_returns_shared_instance() -> None:
+    """get_database should expose the process-wide Database singleton."""
+    database = get_database()
+
+    assert isinstance(database, Database)
+    assert get_database() is database
 
 
 def test_get_engine_before_init_raises() -> None:
