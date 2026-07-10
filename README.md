@@ -1,5 +1,7 @@
 # Async Payment Processing Service
 
+[![CI](https://github.com/GvozdevAD/async-payment-service/actions/workflows/ci.yml/badge.svg)](https://github.com/GvozdevAD/async-payment-service/actions/workflows/ci.yml)
+
 Микросервис асинхронной обработки платежей: API → Outbox → RabbitMQ → Consumer → Webhook.
 
 ## Стек
