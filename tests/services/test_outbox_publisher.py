@@ -1,0 +1,216 @@
+"""Outbox publisher service unit tests."""
+
+import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from aio_pika.exceptions import AMQPConnectionError
+from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.core.settings import LocalSettings
+from app.db.enums import OutboxStatus
+from app.db.models.outbox import Outbox
+from app.messaging.schemas import PaymentNewMessage
+from app.services.outbox_publisher import OutboxPublisherService
+
+
+@pytest.fixture
+def publisher_settings() -> LocalSettings:
+    """Return settings for outbox publisher tests."""
+    return LocalSettings(
+        database_url="postgresql+asyncpg://user:pass@localhost/db",
+        database_url_sync="postgresql+psycopg://user:pass@localhost/db",
+        rabbitmq_url="amqp://guest:guest@localhost:5672/",
+        api_key="test-api-key-16chars",
+        rabbitmq_exchange="payments",
+        rabbitmq_payments_new_queue="payments.new",
+        rabbitmq_payments_new_dlq="payments.new.dlq",
+        rabbitmq_payments_new_routing_key="payments.new",
+        outbox_publish_max_attempts=3,
+        outbox_batch_size=10,
+    )
+
+
+def _make_outbox(
+    *,
+    outbox_id: uuid.UUID | None = None,
+    payment_id: uuid.UUID | None = None,
+) -> Outbox:
+    """Build an outbox ORM instance for tests."""
+    payment_id = payment_id or uuid.uuid4()
+    return Outbox(
+        id=outbox_id or uuid.uuid4(),
+        aggregate_id=payment_id,
+        event_type="payments.new",
+        payload={
+            "payment_id": str(payment_id),
+            "amount": "100.50",
+            "currency": "RUB",
+            "webhook_url": "https://example.com/webhook",
+        },
+        status=OutboxStatus.PENDING,
+        created_at=datetime.now(UTC),
+    )
+
+
+@pytest.fixture
+def publisher_service(
+    publisher_settings: LocalSettings,
+) -> tuple[OutboxPublisherService, AsyncMock, async_sessionmaker[AsyncSession]]:
+    """Return a publisher service with mocked broker and session factory."""
+    session = AsyncMock(spec=AsyncSession)
+    session.begin = MagicMock()
+    session.begin.return_value.__aenter__ = AsyncMock(return_value=None)
+    session.begin.return_value.__aexit__ = AsyncMock(return_value=None)
+
+    session_factory = MagicMock(spec=async_sessionmaker)
+    session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
+    session_factory.return_value.__aexit__ = AsyncMock(return_value=None)
+
+    broker = AsyncMock()
+    service = OutboxPublisherService(
+        session_factory=session_factory,
+        broker=broker,
+        settings=publisher_settings,
+    )
+    return service, broker, session_factory
+
+
+async def test_publish_pending_success(
+    publisher_service: tuple[
+        OutboxPublisherService, AsyncMock, async_sessionmaker[AsyncSession]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pending outbox record should be published and marked published."""
+    service, broker, _session_factory = publisher_service
+    outbox = _make_outbox()
+    repo = AsyncMock()
+    repo.get_pending_batch = AsyncMock(side_effect=[[outbox], []])
+    repo.mark_published = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.outbox_publisher.OutboxRepository",
+        lambda _session: repo,
+    )
+
+    published = await service.publish_pending()
+
+    assert published == 1
+    broker.publish.assert_awaited_once()
+    repo.mark_published.assert_awaited_once()
+    repo.mark_failed.assert_not_called()
+
+
+async def test_publish_pending_empty_batch(
+    publisher_service: tuple[
+        OutboxPublisherService, AsyncMock, async_sessionmaker[AsyncSession]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No pending records should return zero published messages."""
+    service, broker, _session_factory = publisher_service
+    repo = AsyncMock()
+    repo.get_pending_batch = AsyncMock(return_value=[])
+    monkeypatch.setattr(
+        "app.services.outbox_publisher.OutboxRepository",
+        lambda _session: repo,
+    )
+
+    published = await service.publish_pending()
+
+    assert published == 0
+    broker.publish.assert_not_awaited()
+
+
+async def test_publish_retries_on_broker_error(
+    publisher_settings: LocalSettings,
+    publisher_service: tuple[
+        OutboxPublisherService, AsyncMock, async_sessionmaker[AsyncSession]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transient broker errors should be retried before success."""
+    publisher_settings.outbox_publish_max_attempts = 3
+    service, broker, _session_factory = publisher_service
+    outbox = _make_outbox()
+    repo = AsyncMock()
+    repo.get_pending_batch = AsyncMock(side_effect=[[outbox], []])
+    repo.mark_published = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.outbox_publisher.OutboxRepository",
+        lambda _session: repo,
+    )
+    broker.publish = AsyncMock(
+        side_effect=[
+            AMQPConnectionError("connection refused"),
+            AMQPConnectionError("connection refused"),
+            None,
+        ],
+    )
+
+    published = await service.publish_pending()
+
+    assert published == 1
+    assert broker.publish.await_count == 3
+    repo.mark_published.assert_awaited_once()
+
+
+async def test_publish_keeps_pending_after_max_retries(
+    publisher_settings: LocalSettings,
+    publisher_service: tuple[
+        OutboxPublisherService, AsyncMock, async_sessionmaker[AsyncSession]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transient broker failures should leave outbox pending for the next poll."""
+    publisher_settings.outbox_publish_max_attempts = 3
+    service, broker, _session_factory = publisher_service
+    outbox = _make_outbox()
+    repo = AsyncMock()
+    repo.get_pending_batch = AsyncMock(side_effect=[[outbox], []])
+    repo.mark_failed = AsyncMock()
+    repo.mark_published = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.outbox_publisher.OutboxRepository",
+        lambda _session: repo,
+    )
+    broker.publish = AsyncMock(side_effect=AMQPConnectionError("connection refused"))
+
+    published = await service.publish_pending()
+
+    assert published == 0
+    assert broker.publish.await_count == 3
+    repo.mark_failed.assert_not_called()
+    repo.mark_published.assert_not_called()
+
+
+def test_payment_new_message_from_outbox() -> None:
+    """Outbox payload should map to a payment-new message."""
+    from app.mappers.outbox import to_payment_new_message
+
+    payment_id = uuid.uuid4()
+    outbox = _make_outbox(payment_id=payment_id)
+
+    message = to_payment_new_message(outbox)
+
+    assert message == PaymentNewMessage(
+        outbox_id=outbox.id,
+        event_type="payments.new",
+        payment_id=payment_id,
+        amount="100.50",
+        currency="RUB",
+        webhook_url="https://example.com/webhook",
+    )
+
+
+def test_payment_new_message_invalid_payload_raises() -> None:
+    """Invalid outbox payload should raise validation error."""
+    from app.mappers.outbox import to_payment_new_message
+
+    outbox = _make_outbox()
+    outbox.payload = {"payment_id": "not-a-valid-message"}
+
+    with pytest.raises(ValidationError):
+        to_payment_new_message(outbox)
