@@ -1,0 +1,25 @@
+services:
+  postgres:
+    networks:
+      - payments-internal
+
+  rabbitmq:
+    networks:
+      - payments-internal
+
+  api:
+    networks:
+      - payments-internal
+
+  publisher:
+    networks:
+      - payments-internal
+
+  migrate:
+    networks:
+      - payments-internal
+
+networks:
+  payments-internal:
+    driver: bridge
+    internal: true
