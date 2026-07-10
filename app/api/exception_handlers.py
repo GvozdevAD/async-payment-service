@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.core.config import get_settings
+from app.core.settings import get_settings
 from app.core.exceptions import AppException
 from app.core.logging import log_exception
 from app.core.middleware import REQUEST_ID_HEADER, get_request_id

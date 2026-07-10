@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config import get_settings
+from app.core.settings import get_settings
 
 _engine: AsyncEngine | None = None
 _async_session: async_sessionmaker[AsyncSession] | None = None
