@@ -4,7 +4,7 @@ info:
   description: A microservice for asynchronous payment processing. Accepts payment
     requests, processes them through an external payment gateway (emulation), and
     notifies the client of the result via webhook.
-  version: 0.2.0
+  version: 0.2.1
 paths:
   /api/v1/health:
     get:
