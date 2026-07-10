@@ -4,7 +4,7 @@ info:
   description: A microservice for asynchronous payment processing. Accepts payment
     requests, processes them through an external payment gateway (emulation), and
     notifies the client of the result via webhook.
-  version: 0.1.0
+  version: 0.2.0
 paths:
   /api/v1/health:
     get:
@@ -49,7 +49,8 @@ paths:
         \   body: Payment creation payload.\n    idempotency_key: Client-supplied\
         \ idempotency key from header.\n    payment_service: Request-scoped payment\
         \ service.\n\nReturns:\n    Created or existing payment summary.\n\nRaises:\n\
-        \    ValidationAppError: If the idempotency key format is invalid."
+        \    ValidationAppError: If the idempotency key format is invalid.\n    UnsafeWebhookUrlError:\
+        \ If the webhook URL violates the SSRF policy."
       operationId: create_payment_api_v1_payments_post
       parameters:
       - name: Idempotency-Key
