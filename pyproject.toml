@@ -20,7 +20,13 @@ dependencies = [
     "tenacity (>=9.1.4,<10.0.0)",
     "greenlet (>=3.5.3,<4.0.0)",
     "gunicorn (>=26.0.0,<27.0.0)",
-    "httpx (>=0.28.1,<0.29.0)"
+    "httpx (>=0.28.1,<0.29.0)",
+    "opentelemetry-sdk (>=1.43.0,<2.0.0)",
+    "opentelemetry-exporter-otlp-proto-grpc (>=1.43.0,<2.0.0)",
+    "opentelemetry-instrumentation-fastapi (>=0.64b0,<0.65)",
+    "opentelemetry-instrumentation-sqlalchemy (>=0.64b0,<0.65)",
+    "opentelemetry-instrumentation-httpx (>=0.64b0,<0.65)",
+    "opentelemetry-instrumentation-logging (>=0.64b0,<0.65)"
 ]
 
 
@@ -46,6 +52,38 @@ migration = [
     "pydantic (>=2.13.4,<3.0.0)",
     "pydantic-settings (>=2.14.2,<3.0.0)",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific rules
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency-injection markers are intentionally called in defaults.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Header",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Cookie",
+    "fastapi.Body",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

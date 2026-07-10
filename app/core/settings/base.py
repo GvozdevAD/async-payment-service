@@ -31,6 +31,10 @@ class BaseAppSettings(BaseSettings):
     consumer_max_attempts: int = 3
     consumer_prefetch_count: int = 10
 
+    otel_enabled: bool = False
+    otel_exporter_otlp_endpoint: str = "http://localhost:4317"
+    otel_metric_export_interval_ms: int = 10_000
+
     rabbitmq_exchange: str
     rabbitmq_payments_new_queue: str
     rabbitmq_payments_new_dlq: str
@@ -177,3 +181,17 @@ class BaseAppSettings(BaseSettings):
             msg = "Consumer prefetch count must be at least 1"
             raise ValueError(msg)
         return value
+
+    @field_validator("otel_metric_export_interval_ms")
+    @classmethod
+    def validate_otel_metric_export_interval(cls, value: int) -> int:
+        """Ensure OTel metric export interval is positive."""
+        if value < 1:
+            msg = "OTel metric export interval must be at least 1 ms"
+            raise ValueError(msg)
+        return value
+
+    @property
+    def app_env(self) -> str:
+        """Return the active application environment profile name."""
+        return "production" if type(self).__name__ == "ProductionSettings" else "local"
