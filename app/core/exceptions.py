@@ -42,18 +42,6 @@ class PaymentNotFoundError(AppException):
         return "The requested payment was not found."
 
 
-class DuplicateIdempotencyKeyError(AppException):
-    """Raised when an idempotency key was already used."""
-
-    status_code = 409
-    code = "duplicate_idempotency_key"
-    title = "Conflict"
-    type_suffix = "duplicate-idempotency-key"
-
-    def default_detail(self) -> str:
-        return "A payment with this idempotency key already exists."
-
-
 class ValidationAppError(AppException):
     """Raised for business-level validation failures."""
 

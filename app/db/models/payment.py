@@ -22,7 +22,7 @@ class Payment(Base, UUIDPrimaryKeyMixin, CreatedAtMixin):
         Enum(Currency, name="currency", values_callable=enum_values),
         nullable=False,
     )
-    description: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(String(500), nullable=False)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata",
         JSONB,
