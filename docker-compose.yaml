@@ -13,6 +13,8 @@ x-app-env: &app-env
   GATEWAY_SUCCESS_RATE: 0.9
   WEBHOOK_MAX_ATTEMPTS: 3
   WEBHOOK_TIMEOUT_SECONDS: 10
+  WEBHOOK_DISPATCHER_POLL_INTERVAL_SECONDS: 5
+  WEBHOOK_DISPATCHER_BATCH_SIZE: 10
   CONSUMER_MAX_ATTEMPTS: 3
   CONSUMER_PREFETCH_COUNT: 10
   RABBITMQ_EXCHANGE: payments
@@ -103,6 +105,20 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  webhook-dispatcher:
+    build:
+      context: .
+      dockerfile: dockerfiles/app/Dockerfile
+    environment:
+      <<: *app-env
+      APP_ENV: production
+    command: python -m app.dispatcher.main
+    depends_on:
+      postgres:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
