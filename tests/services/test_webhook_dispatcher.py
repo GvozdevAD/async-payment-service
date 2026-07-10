@@ -268,9 +268,8 @@ async def test_run_forever_logs_iteration_error(
         AsyncMock(side_effect=[RuntimeError("db down"), asyncio.CancelledError()]),
     )
 
-    with caplog.at_level(logging.ERROR):
-        with pytest.raises(asyncio.CancelledError):
-            await service.run_forever()
+    with caplog.at_level(logging.ERROR), pytest.raises(asyncio.CancelledError):
+        await service.run_forever()
 
     assert "Webhook dispatcher iteration failed" in caplog.text
 

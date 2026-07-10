@@ -58,6 +58,7 @@ def configure_test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RABBITMQ_PAYMENTS_NEW_QUEUE", "payments.new")
     monkeypatch.setenv("RABBITMQ_PAYMENTS_NEW_DLQ", "payments.new.dlq")
     monkeypatch.setenv("RABBITMQ_PAYMENTS_NEW_ROUTING_KEY", "payments.new")
+    monkeypatch.setenv("OTEL_ENABLED", "false")
     get_settings.cache_clear()
 
 

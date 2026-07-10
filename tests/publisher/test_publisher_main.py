@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.core.telemetry import ObservabilityHandles
 from app.publisher import main as publisher_main
 
 
@@ -21,6 +22,14 @@ async def test_publisher_main_runs_and_stops(
     monkeypatch.setattr(publisher_main, "init_db", mock_init_db)
     monkeypatch.setattr(publisher_main, "close_db", mock_close_db)
     monkeypatch.setattr(publisher_main, "setup_logging", MagicMock())
+    monkeypatch.setattr(
+        publisher_main,
+        "setup_observability",
+        MagicMock(return_value=ObservabilityHandles(enabled=False)),
+    )
+    monkeypatch.setattr(publisher_main, "shutdown_observability", MagicMock())
+    monkeypatch.setattr(publisher_main, "instrument_logging", MagicMock())
+    monkeypatch.setattr(publisher_main, "instrument_sqlalchemy_if_ready", MagicMock())
     monkeypatch.setattr(publisher_main, "create_broker", MagicMock())
     monkeypatch.setattr(
         publisher_main,

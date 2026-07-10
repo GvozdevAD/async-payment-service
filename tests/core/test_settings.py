@@ -95,6 +95,7 @@ def test_get_settings_unsupported_raises(monkeypatch: pytest.MonkeyPatch) -> Non
         ("WEBHOOK_DISPATCHER_POLL_INTERVAL_SECONDS", "0", "greater than 0"),
         ("CONSUMER_MAX_ATTEMPTS", "0", "at least 1"),
         ("CONSUMER_PREFETCH_COUNT", "0", "at least 1"),
+        ("OTEL_METRIC_EXPORT_INTERVAL_MS", "0", "at least 1 ms"),
     ],
 )
 def test_base_settings_validators_reject_invalid_values(
@@ -124,6 +125,24 @@ def test_gateway_max_delay_must_be_gte_min_delay(
 
     with pytest.raises(ValidationError, match="max delay must be >= min delay"):
         LocalSettings()
+
+
+def test_local_settings_app_env_property(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Local settings should report local deployment environment."""
+    _apply_env(monkeypatch)
+
+    settings = LocalSettings()
+
+    assert settings.app_env == "local"
+
+
+def test_production_settings_app_env_property(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Production settings should report production deployment environment."""
+    _apply_env(monkeypatch)
+
+    settings = ProductionSettings()
+
+    assert settings.app_env == "production"
 
 
 def test_migration_settings_valid(monkeypatch: pytest.MonkeyPatch) -> None:

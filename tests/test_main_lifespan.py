@@ -5,7 +5,21 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.core.telemetry import ObservabilityHandles
 from app.main import app, lifespan
+
+
+@pytest.fixture(autouse=True)
+def mock_observability(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Disable OTel side effects in lifespan tests."""
+    handles = ObservabilityHandles(enabled=False)
+    monkeypatch.setattr(
+        "app.main.setup_observability",
+        lambda **_: handles,
+    )
+    monkeypatch.setattr("app.main.shutdown_observability", lambda *_: None)
+    monkeypatch.setattr("app.main.instrument_logging", lambda: None)
+    monkeypatch.setattr("app.main.instrument_sqlalchemy_if_ready", lambda: None)
 
 
 @pytest.fixture(autouse=True)

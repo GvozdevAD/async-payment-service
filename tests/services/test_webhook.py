@@ -11,7 +11,7 @@ from app.core.settings import Settings, get_settings
 from app.db.enums import PaymentStatus
 from app.services.webhook import (
     WebhookService,
-    _is_retryable_exception,
+    is_retryable_exception,
     is_retryable_status,
 )
 
@@ -124,9 +124,9 @@ def test_is_retryable_exception_for_non_retryable_http_status() -> None:
     )
 
     assert is_retryable_status(400) is False
-    assert _is_retryable_exception(exc) is False
+    assert is_retryable_exception(exc) is False
 
 
 def test_is_retryable_exception_for_transport_error() -> None:
     """Network transport errors should be retryable."""
-    assert _is_retryable_exception(httpx.TransportError("down")) is True
+    assert is_retryable_exception(httpx.TransportError("down")) is True

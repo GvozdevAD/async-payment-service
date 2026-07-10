@@ -54,7 +54,7 @@ async def test_publish_pending_marks_outbox_published_in_database(
     db_session: AsyncSession,
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Pending outbox row should be published to the broker and marked published in DB."""
+    """Pending outbox row should be published and marked published in DB."""
     settings = get_settings()
     payment, outbox = await _persist_pending_outbox(db_session)
 
@@ -80,7 +80,7 @@ async def test_publish_pending_marks_invalid_payload_failed_in_database(
     db_session: AsyncSession,
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Poison outbox payload should be marked failed without publishing to the broker."""
+    """Poison outbox payload should be marked failed without publishing."""
     settings = get_settings()
     _payment, outbox = await _persist_pending_outbox(
         db_session,

@@ -7,7 +7,7 @@ from aio_pika.exceptions import AMQPConnectionError
 from sqlalchemy.exc import OperationalError
 
 from app.core.settings import LocalSettings
-from app.services.health import HealthService, SERVICE_UNAVAILABLE_DETAIL
+from app.services.health import SERVICE_UNAVAILABLE_DETAIL, HealthService
 from tests.conftest import TEST_API_KEY
 
 

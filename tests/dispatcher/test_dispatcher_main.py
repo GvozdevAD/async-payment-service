@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.core.telemetry import ObservabilityHandles
 from app.dispatcher import main as dispatcher_main
 
 
@@ -21,6 +22,15 @@ async def test_dispatcher_main_runs_and_stops(
     monkeypatch.setattr(dispatcher_main, "init_db", mock_init_db)
     monkeypatch.setattr(dispatcher_main, "close_db", mock_close_db)
     monkeypatch.setattr(dispatcher_main, "setup_logging", MagicMock())
+    monkeypatch.setattr(
+        dispatcher_main,
+        "setup_observability",
+        MagicMock(return_value=ObservabilityHandles(enabled=False)),
+    )
+    monkeypatch.setattr(dispatcher_main, "shutdown_observability", MagicMock())
+    monkeypatch.setattr(dispatcher_main, "instrument_logging", MagicMock())
+    monkeypatch.setattr(dispatcher_main, "instrument_httpx", MagicMock())
+    monkeypatch.setattr(dispatcher_main, "instrument_sqlalchemy_if_ready", MagicMock())
     monkeypatch.setattr(
         dispatcher_main,
         "create_webhook_dispatcher",
