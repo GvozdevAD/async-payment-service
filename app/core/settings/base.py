@@ -25,6 +25,9 @@ class BaseAppSettings(BaseSettings):
     webhook_max_attempts: int = 3
     webhook_timeout_seconds: float = 10.0
 
+    webhook_dispatcher_poll_interval_seconds: float = 5.0
+    webhook_dispatcher_batch_size: int = 10
+
     consumer_max_attempts: int = 3
     consumer_prefetch_count: int = 10
 
@@ -145,6 +148,24 @@ class BaseAppSettings(BaseSettings):
         """Ensure webhook timeout is positive."""
         if value <= 0:
             msg = "Webhook timeout must be greater than 0"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_dispatcher_batch_size")
+    @classmethod
+    def validate_webhook_dispatcher_batch_size(cls, value: int) -> int:
+        """Ensure webhook dispatcher batch size is positive."""
+        if value < 1:
+            msg = "Webhook dispatcher batch size must be at least 1"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_dispatcher_poll_interval_seconds")
+    @classmethod
+    def validate_webhook_dispatcher_poll_interval(cls, value: float) -> float:
+        """Ensure webhook dispatcher poll interval is positive."""
+        if value <= 0:
+            msg = "Webhook dispatcher poll interval must be greater than 0"
             raise ValueError(msg)
         return value
 

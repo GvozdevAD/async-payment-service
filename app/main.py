@@ -14,6 +14,7 @@ from app.core.middleware import RequestIdMiddleware
 from app.db.session import close_db, get_async_sessionmaker, init_db
 from app.messaging.broker import create_broker
 from app.services.outbox_publisher import create_outbox_publisher
+from app.services.webhook_dispatcher import create_webhook_dispatcher
 from app.version import get_version
 
 
@@ -42,8 +43,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await publisher.start()
         publisher_task = asyncio.create_task(publisher.run_forever())
 
+    dispatcher_task: asyncio.Task[None] | None = None
+    dispatcher = None
+    if settings.webhook_dispatcher_enabled:
+        dispatcher = create_webhook_dispatcher(
+            settings=settings,
+            session_factory=get_async_sessionmaker(),
+        )
+        await dispatcher.start()
+        dispatcher_task = asyncio.create_task(dispatcher.run_forever())
+
     yield
 
+    if dispatcher_task is not None:
+        dispatcher_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await dispatcher_task
+    if dispatcher is not None:
+        await dispatcher.stop()
     if publisher_task is not None:
         publisher_task.cancel()
         with suppress(asyncio.CancelledError):
