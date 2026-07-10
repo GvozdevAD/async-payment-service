@@ -36,6 +36,15 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
+    openapi_components={
+        "securitySchemes": {
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Key",
+            },
+        },
+    },
 )
 
 app.add_middleware(RequestIdMiddleware)

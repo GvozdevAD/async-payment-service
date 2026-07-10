@@ -8,6 +8,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.config import Settings
 from app.services.health import HealthService, SERVICE_UNAVAILABLE_DETAIL
+from tests.conftest import TEST_API_KEY
 
 
 @pytest.fixture
@@ -17,6 +18,7 @@ def health_service() -> HealthService:
         database_url="postgresql+asyncpg://user:pass@localhost/db",
         database_url_sync="postgresql+psycopg://user:pass@localhost/db",
         rabbitmq_url="amqp://guest:guest@localhost:5672/",
+        api_key=TEST_API_KEY,
     )
     return HealthService(settings=settings)
 
