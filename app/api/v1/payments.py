@@ -6,14 +6,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, status
 
-from app.api.deps import verify_api_key
+from app.api.deps import get_payment_service, verify_api_key
 from app.core.exceptions import ValidationAppError
 from app.schemas.payment import (
     PaymentCreateRequest,
     PaymentCreateResponse,
     PaymentDetailResponse,
 )
-from app.services.payment import PaymentService, get_payment_service
+from app.services.payment import PaymentService
 
 router = APIRouter(
     prefix="/payments",

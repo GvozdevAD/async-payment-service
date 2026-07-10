@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config import get_settings
+from app.core.settings import get_settings
 from app.db.models.outbox import Outbox
 from app.db.models.payment import Payment
 
@@ -28,7 +28,9 @@ def api_key() -> str:
 @pytest.fixture(autouse=True)
 def configure_test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Configure required environment variables for all tests."""
+    monkeypatch.setenv("APP_ENV", "local")
     monkeypatch.setenv("API_KEY", TEST_API_KEY)
+    monkeypatch.setenv("OUTBOX_PUBLISHER_ENABLED", "false")
     monkeypatch.setenv(
         "DATABASE_URL",
         os.getenv(
@@ -50,6 +52,10 @@ def configure_test_env(monkeypatch: pytest.MonkeyPatch) -> None:
             "amqp://payments:payments@localhost:5672/payments",
         ),
     )
+    monkeypatch.setenv("RABBITMQ_EXCHANGE", "payments")
+    monkeypatch.setenv("RABBITMQ_PAYMENTS_NEW_QUEUE", "payments.new")
+    monkeypatch.setenv("RABBITMQ_PAYMENTS_NEW_DLQ", "payments.new.dlq")
+    monkeypatch.setenv("RABBITMQ_PAYMENTS_NEW_ROUTING_KEY", "payments.new")
     get_settings.cache_clear()
 
 

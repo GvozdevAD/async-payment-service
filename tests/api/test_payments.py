@@ -1,20 +1,20 @@
 """Payment API endpoint tests."""
 
-from collections.abc import AsyncIterator
 import uuid
+from collections.abc import AsyncIterator
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import API_KEY_HEADER, get_db
+from app.api.deps import API_KEY_HEADER, get_db, get_payment_service
 from app.api.exception_handlers import register_exception_handlers
 from app.api.v1 import health, payments
 from app.core.middleware import RequestIdMiddleware
 from app.repositories.outbox import OutboxRepository
 from app.repositories.payment import PaymentRepository
-from app.services.payment import PaymentService, get_payment_service
+from app.services.payment import PaymentService
 from tests.conftest import TEST_API_KEY
 
 

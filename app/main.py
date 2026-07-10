@@ -1,16 +1,19 @@
 """FastAPI application entry point."""
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
 from app.api.exception_handlers import register_exception_handlers
 from app.api.v1.router import router as api_v1_router
-from app.core.config import get_settings
+from app.core.settings import get_settings
 from app.core.logging import setup_logging
 from app.core.middleware import RequestIdMiddleware
-from app.db.session import close_db, init_db
+from app.db.session import close_db, get_async_sessionmaker, init_db
+from app.messaging.broker import create_broker
+from app.services.outbox_publisher import create_outbox_publisher
 from app.version import get_version
 
 
@@ -20,7 +23,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     setup_logging(settings.log_level)
     await init_db()
+
+    publisher_task: asyncio.Task[None] | None = None
+    publisher = None
+    if settings.outbox_publisher_enabled:
+        publisher = create_outbox_publisher(
+            settings=settings,
+            session_factory=get_async_sessionmaker(),
+            broker=create_broker(settings.rabbitmq_url),
+        )
+        await publisher.start()
+        publisher_task = asyncio.create_task(publisher.run_forever())
+
     yield
+
+    if publisher_task is not None:
+        publisher_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await publisher_task
+    if publisher is not None:
+        await publisher.stop()
     await close_db()
 
 
