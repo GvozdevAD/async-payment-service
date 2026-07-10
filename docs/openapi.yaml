@@ -1,0 +1,8 @@
+openapi: 3.1.0
+info:
+  title: Async Payment Processing Service
+  description: A microservice for asynchronous payment processing. Accepts payment
+    requests, processes them through an external payment gateway (emulation), and
+    notifies the client of the result via webhook.
+  version: 0.1.0
+paths: {}
