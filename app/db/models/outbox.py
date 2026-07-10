@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,6 +16,13 @@ class Outbox(Base, UUIDPrimaryKeyMixin, CreatedAtMixin):
     """Outbox record for guaranteed delivery of domain events."""
 
     __tablename__ = "outbox"
+    __table_args__ = (
+        Index(
+            "ix_outbox_pending",
+            "created_at",
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
 
     aggregate_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
