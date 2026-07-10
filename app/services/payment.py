@@ -3,16 +3,16 @@
 import uuid
 from typing import Any
 
-from fastapi import Depends
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
 from app.core.constants import PAYMENT_NEW_EVENT_TYPE
 from app.core.exceptions import PaymentNotFoundError
+from app.core.logging import get_logger
 from app.db.enums import OutboxStatus, PaymentStatus
 from app.db.models.outbox import Outbox
 from app.db.models.payment import Payment
+from app.mappers.payment import to_create_response, to_detail_response
 from app.repositories.outbox import OutboxRepository
 from app.repositories.payment import PaymentRepository
 from app.schemas.payment import (
@@ -20,6 +20,8 @@ from app.schemas.payment import (
     PaymentCreateResponse,
     PaymentDetailResponse,
 )
+
+logger = get_logger(__name__)
 
 
 class PaymentService:
@@ -40,10 +42,21 @@ class PaymentService:
         data: PaymentCreateRequest,
         idempotency_key: str,
     ) -> PaymentCreateResponse:
-        """Create a payment or return an existing one for the idempotency key."""
+        """Create a payment or return an existing one for the idempotency key.
+
+        Args:
+            data: Validated payment creation payload.
+            idempotency_key: Unique key for duplicate request protection.
+
+        Returns:
+            The created or existing payment summary.
+
+        Raises:
+            IntegrityError: If commit fails for a non-idempotency reason.
+        """
         existing = await self._payment_repo.get_by_idempotency_key(idempotency_key)
         if existing is not None:
-            return PaymentCreateResponse.from_model(existing)
+            return to_create_response(existing)
 
         payment = Payment(
             amount=data.amount,
@@ -67,22 +80,32 @@ class PaymentService:
 
         try:
             await self._session.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             await self._session.rollback()
             existing = await self._payment_repo.get_by_idempotency_key(idempotency_key)
             if existing is not None:
-                return PaymentCreateResponse.from_model(existing)
+                logger.debug(
+                    "Idempotency race resolved for key=%s payment_id=%s",
+                    idempotency_key,
+                    existing.id,
+                )
+                return to_create_response(existing)
+            logger.warning(
+                "Unexpected integrity error while creating payment key=%s",
+                idempotency_key,
+                exc_info=exc,
+            )
             raise
 
         await self._session.refresh(payment)
-        return PaymentCreateResponse.from_model(payment)
+        return to_create_response(payment)
 
     async def get_payment(self, payment_id: uuid.UUID) -> PaymentDetailResponse:
         """Return payment details or raise if not found."""
         payment = await self._payment_repo.get_by_id(payment_id)
         if payment is None:
             raise PaymentNotFoundError()
-        return PaymentDetailResponse.from_model(payment)
+        return to_detail_response(payment)
 
     @staticmethod
     def _build_outbox_payload(payment: Payment) -> dict[str, Any]:
@@ -93,14 +116,3 @@ class PaymentService:
             "currency": payment.currency.value,
             "webhook_url": payment.webhook_url,
         }
-
-
-def get_payment_service(
-    session: AsyncSession = Depends(get_db),
-) -> PaymentService:
-    """Return a payment service bound to the request database session."""
-    return PaymentService(
-        session=session,
-        payment_repo=PaymentRepository(session),
-        outbox_repo=OutboxRepository(session),
-    )
