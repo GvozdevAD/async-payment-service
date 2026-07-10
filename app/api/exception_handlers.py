@@ -6,10 +6,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.core.settings import get_settings
-from app.core.exceptions import AppException
+from app.core.exceptions import AppError
 from app.core.logging import log_exception
 from app.core.middleware import REQUEST_ID_HEADER, get_request_id
+from app.core.settings import get_settings
 from app.schemas.error import ProblemDetail
 
 PROBLEM_MEDIA_TYPE = "application/problem+json"
@@ -98,7 +98,7 @@ def build_problem_response(
     return _problem_response(problem)
 
 
-async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+async def app_exception_handler(request: Request, exc: AppError) -> JSONResponse:
     """Handle application-specific exceptions.
 
     Args:
@@ -194,7 +194,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     Args:
         app: FastAPI application instance.
     """
-    app.add_exception_handler(AppException, app_exception_handler)
+    app.add_exception_handler(AppError, app_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)

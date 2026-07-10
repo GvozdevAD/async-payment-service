@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from app.core.exceptions import AppException
+from app.core.exceptions import AppError
 
 APP_LOGGER_NAME = "app"
 
@@ -59,9 +59,9 @@ def log_exception(
         "path": path,
         **(extra or {}),
     }
-    message = "Request failed: %s %s" % (method, path)
+    message = f"Request failed: {method} {path}"
 
-    if isinstance(exc, AppException):
+    if isinstance(exc, AppError):
         logger.warning(
             "%s | code=%s detail=%s | context=%s",
             message,
