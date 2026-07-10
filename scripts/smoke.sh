@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke-test the local API: health, payments, idempotency.
+# Smoke-test the local API: health, payments, idempotency, outbox, webhook delivery.
 #
 # Usage:
 #   ./scripts/smoke.sh
@@ -236,6 +236,47 @@ if [[ "$POLL_OK" -eq 0 ]]; then
 elif [[ "$FINAL_STATUS" != "succeeded" && "$FINAL_STATUS" != "failed" ]]; then
   red "  FAIL unexpected payment status=$FINAL_STATUS"
   FAIL=$((FAIL + 1))
+fi
+echo
+
+# --- Webhook delivery (optional, requires consumer + dispatcher) ---
+bold "10. Webhook delivery status (optional)"
+if docker compose -p test-task ps --status running postgres 2>/dev/null | grep -q postgres; then
+  if [[ "$POLL_OK" -eq 0 ]]; then
+    echo "       skipped (payment was not processed)"
+  else
+    WEBHOOK_POLL_OK=0
+    WEBHOOK_STATUS=""
+    DEADLINE=$((SECONDS + SMOKE_POLL_TIMEOUT_SECONDS))
+
+    while (( SECONDS < DEADLINE )); do
+      WEBHOOK_STATUS=$(docker compose -p test-task exec -T postgres \
+        psql -U payments -d payments -t -A -c \
+        "SELECT status FROM webhook_deliveries WHERE payment_id = '$PAYMENT_ID' LIMIT 1;" 2>/dev/null || true)
+      WEBHOOK_STATUS="${WEBHOOK_STATUS//$'\r'/}"
+      WEBHOOK_STATUS="${WEBHOOK_STATUS//$'\n'/}"
+
+      if [[ "$WEBHOOK_STATUS" == "delivered" || "$WEBHOOK_STATUS" == "failed" ]]; then
+        green "  OK   webhook delivery status=$WEBHOOK_STATUS"
+        PASS=$((PASS + 1))
+        WEBHOOK_POLL_OK=1
+        break
+      fi
+      sleep "$SMOKE_POLL_INTERVAL_SECONDS"
+    done
+
+    if [[ "$WEBHOOK_POLL_OK" -eq 0 ]]; then
+      if [[ -z "$WEBHOOK_STATUS" ]]; then
+        red "  FAIL webhook delivery row not found for payment_id"
+      else
+        red "  FAIL webhook delivery still $WEBHOOK_STATUS after ${SMOKE_POLL_TIMEOUT_SECONDS}s"
+        red "       hint: start dispatcher with make dispatcher-dev or make dispatcher-up"
+      fi
+      FAIL=$((FAIL + 1))
+    fi
+  fi
+else
+  echo "       skipped (postgres container not running)"
 fi
 echo
 
