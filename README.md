@@ -1,8 +1,19 @@
 # Async Payment Processing Service
 
 [![CI](https://github.com/GvozdevAD/async-payment-service/actions/workflows/ci.yml/badge.svg)](https://github.com/GvozdevAD/async-payment-service/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![RabbitMQ](https://img.shields.io/badge/RabbitMQ-FF6600?logo=rabbitmq&logoColor=white)](https://www.rabbitmq.com/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-000000?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 
 Микросервис асинхронной обработки платежей: API → Outbox → RabbitMQ → Consumer → Webhook.
+
+История изменений: [CHANGELOG.md](CHANGELOG.md)
 
 ## Стек
 

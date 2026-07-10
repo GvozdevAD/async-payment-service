@@ -1,6 +1,6 @@
 [project]
 name = "async-payment-service"
-version = "0.1.0"
+version = "0.2.0"
 description = "Async payment processing microservice with guaranteed event delivery and webhook notifications"
 authors = [
     {name = "dark_loop",email = "alexander@gvozdev.net"}
