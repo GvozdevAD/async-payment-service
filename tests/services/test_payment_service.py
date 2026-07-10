@@ -184,6 +184,40 @@ async def test_get_payment_found(
     assert result.metadata == payment.metadata_
 
 
+async def test_create_payment_unexpected_integrity_error_reraises(
+    payment_service: tuple[
+        PaymentService, AsyncMock, PaymentRepository, OutboxRepository
+    ],
+    payment_create_request: PaymentCreateRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unexpected IntegrityError should be re-raised after rollback."""
+    service, session, payment_repo, outbox_repo = payment_service
+
+    async def fake_get_by_idempotency_key(key: str) -> Payment | None:
+        return None
+
+    async def fake_create(payment: Payment) -> Payment:
+        payment.id = uuid.uuid4()
+        payment.created_at = datetime.now(UTC)
+        payment.status = PaymentStatus.PENDING
+        return payment
+
+    session.commit.side_effect = IntegrityError("insert", {}, Exception("other"))
+    monkeypatch.setattr(
+        payment_repo, "get_by_idempotency_key", fake_get_by_idempotency_key
+    )
+    monkeypatch.setattr(payment_repo, "create", fake_create)
+    monkeypatch.setattr(
+        outbox_repo, "create", AsyncMock(side_effect=lambda outbox: outbox)
+    )
+
+    with pytest.raises(IntegrityError):
+        await service.create_payment(payment_create_request, "order-fail")
+
+    session.rollback.assert_awaited_once()
+
+
 async def test_get_payment_not_found(
     payment_service: tuple[
         PaymentService, AsyncMock, PaymentRepository, OutboxRepository

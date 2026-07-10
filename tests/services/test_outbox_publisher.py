@@ -1,5 +1,6 @@
 """Outbox publisher service unit tests."""
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -214,3 +215,121 @@ def test_payment_new_message_invalid_payload_raises() -> None:
 
     with pytest.raises(ValidationError):
         to_payment_new_message(outbox)
+
+
+async def test_publish_marks_failed_on_validation_error(
+    publisher_service: tuple[
+        OutboxPublisherService, AsyncMock, async_sessionmaker[AsyncSession]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid outbox payload should mark the record as failed."""
+    service, broker, _session_factory = publisher_service
+    outbox = _make_outbox()
+    outbox.payload = {"payment_id": "not-a-valid-message"}
+    repo = AsyncMock()
+    repo.get_pending_batch = AsyncMock(side_effect=[[outbox], []])
+    repo.mark_failed = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.outbox_publisher.OutboxRepository",
+        lambda _session: repo,
+    )
+
+    published = await service.publish_pending()
+
+    assert published == 0
+    broker.publish.assert_not_awaited()
+    repo.mark_failed.assert_awaited_once()
+    repo.mark_published.assert_not_called()
+
+
+async def test_start_declares_topology(
+    publisher_settings: LocalSettings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """start() should connect broker and declare topology."""
+    broker = AsyncMock()
+    mock_declare = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.outbox_publisher.declare_topology",
+        mock_declare,
+    )
+    session_factory = MagicMock()
+    service = OutboxPublisherService(
+        session_factory=session_factory,
+        broker=broker,
+        settings=publisher_settings,
+    )
+
+    await service.start()
+
+    broker.start.assert_awaited_once()
+    mock_declare.assert_awaited_once_with(broker, publisher_settings)
+
+
+async def test_stop_closes_broker(publisher_settings: LocalSettings) -> None:
+    """stop() should close the broker connection."""
+    broker = AsyncMock()
+    session_factory = MagicMock()
+    service = OutboxPublisherService(
+        session_factory=session_factory,
+        broker=broker,
+        settings=publisher_settings,
+    )
+
+    await service.stop()
+
+    broker.stop.assert_awaited_once()
+
+
+async def test_run_forever_cancels_cleanly(
+    publisher_settings: LocalSettings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_forever should propagate CancelledError after logging shutdown."""
+    broker = AsyncMock()
+    session_factory = MagicMock()
+    service = OutboxPublisherService(
+        session_factory=session_factory,
+        broker=broker,
+        settings=publisher_settings,
+    )
+    publisher_settings.outbox_poll_interval_seconds = 0.01
+    publish_mock = AsyncMock(return_value=0)
+    monkeypatch.setattr(service, "publish_pending", publish_mock)
+
+    task = asyncio.create_task(service.run_forever())
+    await asyncio.sleep(0.05)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_run_forever_logs_iteration_error(
+    publisher_settings: LocalSettings,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unexpected errors in publish_pending should be logged and retried."""
+    import logging
+
+    broker = AsyncMock()
+    session_factory = MagicMock()
+    service = OutboxPublisherService(
+        session_factory=session_factory,
+        broker=broker,
+        settings=publisher_settings,
+    )
+    publisher_settings.outbox_poll_interval_seconds = 0.01
+    monkeypatch.setattr(
+        service,
+        "publish_pending",
+        AsyncMock(side_effect=[RuntimeError("db down"), asyncio.CancelledError()]),
+    )
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(asyncio.CancelledError):
+            await service.run_forever()
+
+    assert "Outbox publisher iteration failed" in caplog.text

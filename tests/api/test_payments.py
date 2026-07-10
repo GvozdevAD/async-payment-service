@@ -201,6 +201,72 @@ async def test_get_payment_not_found_returns_404(
     assert response.json()["code"] == "payment_not_found"
 
 
+async def test_create_payment_invalid_idempotency_key_too_long(
+    payments_client: AsyncClient,
+    payment_payload: dict[str, object],
+) -> None:
+    """Idempotency key longer than 255 characters should return validation error."""
+    response = await payments_client.post(
+        "/api/v1/payments",
+        json=payment_payload,
+        headers={
+            API_KEY_HEADER: TEST_API_KEY,
+            "Idempotency-Key": "x" * 256,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert "255 characters" in response.json()["detail"]
+
+
+async def test_create_payment_invalid_idempotency_key_non_ascii(
+    payment_payload: dict[str, object],
+) -> None:
+    """Non-ASCII idempotency key should return validation error."""
+    from unittest.mock import AsyncMock
+
+    from app.api.v1.payments import _validate_idempotency_key, create_payment
+    from app.core.exceptions import ValidationAppError
+    from app.schemas.payment import PaymentCreateRequest
+
+    with pytest.raises(ValueError, match="printable ASCII"):
+        _validate_idempotency_key("ключ-emoji")
+
+    body = PaymentCreateRequest.model_validate(payment_payload)
+    service = AsyncMock()
+
+    with pytest.raises(ValidationAppError, match="printable ASCII"):
+        await create_payment(body, "ключ-emoji", service)
+
+    service.create_payment.assert_not_called()
+
+
+async def test_create_payment_amount_too_many_decimals_returns_422(
+    payments_client: AsyncClient,
+    idempotency_key: str,
+) -> None:
+    """Amount with more than two decimal places should return validation error."""
+    payload = {
+        "amount": "10.999",
+        "currency": "RUB",
+        "description": "Too precise",
+        "metadata": {},
+        "webhook_url": "https://example.com/webhook",
+    }
+    response = await payments_client.post(
+        "/api/v1/payments",
+        json=payload,
+        headers={
+            API_KEY_HEADER: TEST_API_KEY,
+            "Idempotency-Key": idempotency_key,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+
+
 async def test_health_still_works_without_api_key(
     payments_client: AsyncClient,
 ) -> None:

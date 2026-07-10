@@ -30,6 +30,12 @@ def app() -> FastAPI:
     async def validation_error(required_query: int) -> None:
         pass
 
+    @test_app.get("/test/http-error")
+    async def http_error() -> None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail={"field": "invalid"})
+
     return test_app
 
 
@@ -99,3 +105,13 @@ async def test_validation_error_returns_problem_detail(client: AsyncClient) -> N
     assert body["type"].endswith("/validation-error")
     assert body["errors"] is not None
     assert len(body["errors"]) > 0
+
+
+async def test_http_exception_non_string_detail(client: AsyncClient) -> None:
+    """HTTPException with non-string detail should use a safe fallback message."""
+    response = await client.get("/test/http-error")
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["code"] == "http_error"
+    assert body["detail"] == "Request failed."

@@ -37,6 +37,7 @@ dev = [
     "pytest (>=9.1.1,<10.0.0)",
     "pytest-asyncio (>=1.4.0,<2.0.0)",
     "pyyaml (>=6.0.3,<7.0.0)",
+    "pytest-cov (>=7.1.0,<8.0.0)",
 ]
 migration = [
     "alembic (>=1.18.5,<2.0.0)",
@@ -49,3 +50,10 @@ migration = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true

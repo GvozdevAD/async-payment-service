@@ -222,10 +222,10 @@ nginx-logs-prod: ## Tail nginx logs (production stack)
 db-migrate: env ## Apply Alembic migrations
 	$(POETRY_RUN) alembic upgrade head
 
-db-migrate-docker: env ## Apply migrations via local Docker migrate service
+db-migrate-docker: env ## Re-apply migrations via Docker (after new Alembic revisions)
 	$(COMPOSE_LOCAL) run --rm $(MIGRATE_SERVICE)
 
-db-migrate-prod: env ## Apply migrations via prod Docker migrate service
+db-migrate-prod: env ## Re-apply migrations via prod Docker (after new Alembic revisions)
 	$(COMPOSE_PROD) run --rm $(MIGRATE_SERVICE)
 
 db-revision: env ## Create new Alembic revision (use MSG='description')
@@ -239,7 +239,7 @@ db-downgrade: env ## Roll back one migration
 # @section Code quality
 # ------------------------------------------------------------------------------
 
-.PHONY: lint lint-fix format test
+.PHONY: lint lint-fix format test test-cov
 lint: ## Run Ruff linter
 	$(POETRY_RUN) ruff check .
 
@@ -251,6 +251,9 @@ format: ## Format code with Ruff
 
 test: ## Run pytest
 	$(POETRY_RUN) pytest
+
+test-cov: ## Run pytest with coverage report (requires PostgreSQL)
+	$(POETRY_RUN) pytest --cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=100
 
 # ------------------------------------------------------------------------------
 # @section Full stack

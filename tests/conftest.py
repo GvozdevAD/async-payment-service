@@ -87,6 +87,32 @@ async def db_session(
 
 
 @pytest.fixture
+async def db_session_factory(
+    configure_test_env: None,
+) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """Yield a session factory for integration tests that open their own sessions."""
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+    except Exception as exc:
+        await engine.dispose()
+        pytest.skip(f"PostgreSQL is not available: {exc}")
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        yield factory
+    finally:
+        async with factory() as cleanup:
+            await cleanup.execute(delete(Outbox))
+            await cleanup.execute(delete(Payment))
+            await cleanup.commit()
+        await engine.dispose()
+
+
+@pytest.fixture
 def payment_payload() -> dict[str, object]:
     """Return a valid payment creation payload."""
     return {
