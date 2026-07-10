@@ -37,3 +37,11 @@ class OutboxStatus(StrEnum):
     PENDING = "pending"
     PUBLISHED = "published"
     FAILED = "failed"
+
+
+class WebhookDeliveryStatus(StrEnum):
+    """Webhook delivery outbox status."""
+
+    PENDING = "pending"
+    DELIVERED = "delivered"
+    FAILED = "failed"
