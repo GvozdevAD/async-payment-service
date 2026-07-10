@@ -16,14 +16,28 @@ _async_session: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_engine() -> AsyncEngine:
-    """Return the initialized async database engine."""
+    """Return the initialized async database engine.
+
+    Returns:
+        Active async SQLAlchemy engine.
+
+    Raises:
+        RuntimeError: If init_db has not been called yet.
+    """
     if _engine is None:
         raise RuntimeError("Database engine is not initialized")
     return _engine
 
 
 def get_async_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    """Return the initialized async session factory."""
+    """Return the initialized async session factory.
+
+    Returns:
+        Configured async session maker.
+
+    Raises:
+        RuntimeError: If init_db has not been called yet.
+    """
     if _async_session is None:
         raise RuntimeError("Database session maker is not initialized")
     return _async_session
@@ -53,6 +67,10 @@ async def close_db() -> None:
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Yield an async database session for dependency injection."""
+    """Yield an async database session for dependency injection.
+
+    Yields:
+        Request-scoped async database session.
+    """
     async with get_async_sessionmaker()() as session:
         yield session

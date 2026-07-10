@@ -54,7 +54,7 @@ class OutboxPublisherService:
         """Process up to one batch of pending outbox records.
 
         Returns:
-            Number of successfully published messages.
+            Number of successfully published messages in this batch.
         """
         published_count = 0
         for _ in range(self._settings.outbox_batch_size):
@@ -66,7 +66,11 @@ class OutboxPublisherService:
         return published_count
 
     async def run_forever(self) -> None:
-        """Poll outbox records until the task is cancelled."""
+        """Poll outbox records until the task is cancelled.
+
+        Raises:
+            asyncio.CancelledError: When the background task is cancelled.
+        """
         try:
             while True:
                 try:
@@ -150,7 +154,16 @@ def create_outbox_publisher(
     session_factory: async_sessionmaker[AsyncSession],
     broker: RabbitBroker,
 ) -> OutboxPublisherService:
-    """Build an outbox publisher service from application dependencies."""
+    """Build an outbox publisher service from application dependencies.
+
+    Args:
+        settings: Application settings for polling and retry behavior.
+        session_factory: Async SQLAlchemy session factory.
+        broker: FastStream RabbitMQ broker for event publication.
+
+    Returns:
+        Configured outbox publisher service.
+    """
     return OutboxPublisherService(
         session_factory=session_factory,
         broker=broker,

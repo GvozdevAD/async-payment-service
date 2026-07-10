@@ -19,7 +19,14 @@ from app.version import get_version
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Initialize and tear down application resources."""
+    """Initialize and tear down application resources.
+
+    Args:
+        app: FastAPI application instance.
+
+    Yields:
+        Control to the running application after startup completes.
+    """
     settings = get_settings()
     setup_logging(settings.log_level)
     await init_db()

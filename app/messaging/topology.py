@@ -6,7 +6,14 @@ from app.core.settings import Settings
 
 
 def payments_new_dlq(settings: Settings) -> RabbitQueue:
-    """Return the dead-letter queue definition for payment-new messages."""
+    """Return the dead-letter queue definition for payment-new messages.
+
+    Args:
+        settings: Application settings with queue names.
+
+    Returns:
+        Durable DLQ definition for failed payment-new messages.
+    """
     return RabbitQueue(
         name=settings.rabbitmq_payments_new_dlq,
         durable=True,
@@ -14,7 +21,14 @@ def payments_new_dlq(settings: Settings) -> RabbitQueue:
 
 
 def payments_new_queue(settings: Settings) -> RabbitQueue:
-    """Return the main payments.new queue with DLQ routing."""
+    """Return the main payments.new queue with DLQ routing.
+
+    Args:
+        settings: Application settings with queue names.
+
+    Returns:
+        Durable main queue with dead-letter routing configured.
+    """
     return RabbitQueue(
         name=settings.rabbitmq_payments_new_queue,
         durable=True,
@@ -26,7 +40,12 @@ def payments_new_queue(settings: Settings) -> RabbitQueue:
 
 
 async def declare_topology(broker: RabbitBroker, settings: Settings) -> None:
-    """Declare exchange, queues and bindings for payment events."""
+    """Declare exchange, queues and bindings for payment events.
+
+    Args:
+        broker: Connected FastStream RabbitMQ broker.
+        settings: Application settings with exchange and routing keys.
+    """
     exchange = RabbitExchange(
         name=settings.rabbitmq_exchange,
         type=ExchangeType.TOPIC,

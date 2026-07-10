@@ -9,7 +9,11 @@ APP_LOGGER_NAME = "app"
 
 
 def setup_logging(level: str = "INFO") -> None:
-    """Configure root logging for the application."""
+    """Configure root logging for the application.
+
+    Args:
+        level: Logging level name (for example, INFO or DEBUG).
+    """
     logging.basicConfig(
         level=level.upper(),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -17,7 +21,14 @@ def setup_logging(level: str = "INFO") -> None:
 
 
 def get_logger(name: str = APP_LOGGER_NAME) -> logging.Logger:
-    """Return an application logger."""
+    """Return an application logger.
+
+    Args:
+        name: Logger name; defaults to the application root logger.
+
+    Returns:
+        Configured logger instance.
+    """
     return logging.getLogger(name)
 
 
@@ -33,6 +44,13 @@ def log_exception(
 
     Application exceptions are logged as warnings. Unexpected exceptions
     include a full traceback.
+
+    Args:
+        exc: Exception to log.
+        request_id: Optional request identifier from middleware.
+        method: HTTP method of the failed request.
+        path: Request path of the failed request.
+        extra: Optional additional context fields.
     """
     logger = get_logger()
     context = {

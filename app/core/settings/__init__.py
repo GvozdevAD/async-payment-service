@@ -12,7 +12,14 @@ Settings = LocalSettings | ProductionSettings
 
 @lru_cache
 def get_settings() -> Settings:
-    """Return cached settings for the active APP_ENV profile."""
+    """Return cached settings for the active APP_ENV profile.
+
+    Returns:
+        Settings instance for the local or production profile.
+
+    Raises:
+        ValueError: If APP_ENV is not supported.
+    """
     app_env = os.getenv("APP_ENV", "local").lower()
     if app_env == "production":
         return ProductionSettings()

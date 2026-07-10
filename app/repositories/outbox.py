@@ -17,12 +17,26 @@ class OutboxRepository:
         self._session = session
 
     async def create(self, outbox: Outbox) -> Outbox:
-        """Add a new outbox record to the current session."""
+        """Add a new outbox record to the current session.
+
+        Args:
+            outbox: Outbox ORM instance to persist.
+
+        Returns:
+            The same outbox instance attached to the session.
+        """
         self._session.add(outbox)
         return outbox
 
     async def get_pending_batch(self, *, limit: int) -> list[Outbox]:
-        """Fetch pending outbox records with row-level lock."""
+        """Fetch pending outbox records with row-level lock.
+
+        Args:
+            limit: Maximum number of records to return.
+
+        Returns:
+            Pending outbox records ordered by creation time.
+        """
         stmt = (
             select(Outbox)
             .where(Outbox.status == OutboxStatus.PENDING)
@@ -39,7 +53,12 @@ class OutboxRepository:
         *,
         processed_at: datetime,
     ) -> None:
-        """Mark outbox record as published."""
+        """Mark outbox record as published.
+
+        Args:
+            outbox_id: Outbox record UUID.
+            processed_at: Timestamp when publication completed.
+        """
         await self._session.execute(
             update(Outbox)
             .where(Outbox.id == outbox_id)
@@ -55,7 +74,12 @@ class OutboxRepository:
         *,
         processed_at: datetime,
     ) -> None:
-        """Mark outbox record as permanently failed."""
+        """Mark outbox record as permanently failed.
+
+        Args:
+            outbox_id: Outbox record UUID.
+            processed_at: Timestamp when processing stopped.
+        """
         await self._session.execute(
             update(Outbox)
             .where(Outbox.id == outbox_id)

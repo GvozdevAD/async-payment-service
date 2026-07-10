@@ -47,7 +47,19 @@ async def create_payment(
     idempotency_key: Annotated[str, Header(alias=IDEMPOTENCY_KEY_HEADER)],
     payment_service: PaymentService = Depends(get_payment_service),
 ) -> PaymentCreateResponse:
-    """Create a new payment for asynchronous processing."""
+    """Create a new payment for asynchronous processing.
+
+    Args:
+        body: Payment creation payload.
+        idempotency_key: Client-supplied idempotency key from header.
+        payment_service: Request-scoped payment service.
+
+    Returns:
+        Created or existing payment summary.
+
+    Raises:
+        ValidationAppError: If the idempotency key format is invalid.
+    """
     try:
         validated_key = _validate_idempotency_key(idempotency_key)
     except ValueError as exc:
@@ -64,5 +76,16 @@ async def get_payment(
     payment_id: uuid.UUID,
     payment_service: PaymentService = Depends(get_payment_service),
 ) -> PaymentDetailResponse:
-    """Return detailed information about a payment."""
+    """Return detailed information about a payment.
+
+    Args:
+        payment_id: Payment UUID from the URL path.
+        payment_service: Request-scoped payment service.
+
+    Returns:
+        Full payment details.
+
+    Raises:
+        PaymentNotFoundError: If the payment does not exist.
+    """
     return await payment_service.get_payment(payment_id)

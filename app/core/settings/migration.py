@@ -32,5 +32,9 @@ class MigrationSettings(BaseSettings):
 
 @lru_cache
 def get_migration_settings() -> MigrationSettings:
-    """Return cached migration settings instance."""
+    """Return cached migration settings instance.
+
+    Returns:
+        Settings loaded from environment for Alembic migrations.
+    """
     return MigrationSettings()

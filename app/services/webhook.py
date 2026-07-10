@@ -26,7 +26,14 @@ class WebhookDeliveryError(Exception):
 
 
 def is_retryable_status(status_code: int) -> bool:
-    """Return whether an HTTP status code should trigger a retry."""
+    """Return whether an HTTP status code should trigger a retry.
+
+    Args:
+        status_code: HTTP response status code.
+
+    Returns:
+        True for retryable client/server errors, False otherwise.
+    """
     return status_code in WEBHOOK_RETRYABLE_STATUS_CODES or status_code >= 500
 
 

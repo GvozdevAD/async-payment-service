@@ -14,7 +14,11 @@ from app.services.payment_processor import create_payment_processor
 
 
 async def main() -> None:
-    """Run the payment consumer until interrupted."""
+    """Run the payment consumer until interrupted.
+
+    Initializes database and RabbitMQ connections, registers payment-new
+    handlers, and shuts down resources on exit.
+    """
     settings = get_settings()
     setup_logging(settings.log_level)
     await init_db()
@@ -35,5 +39,5 @@ async def main() -> None:
         await close_db()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     asyncio.run(main())

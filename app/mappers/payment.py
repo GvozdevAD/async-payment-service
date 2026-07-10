@@ -5,7 +5,14 @@ from app.schemas.payment import PaymentCreateResponse, PaymentDetailResponse
 
 
 def to_create_response(payment: Payment) -> PaymentCreateResponse:
-    """Map a Payment ORM instance to a create response."""
+    """Map a Payment ORM instance to a create response.
+
+    Args:
+        payment: Payment ORM instance.
+
+    Returns:
+        API response for payment creation.
+    """
     return PaymentCreateResponse(
         payment_id=payment.id,
         status=payment.status,
@@ -14,7 +21,14 @@ def to_create_response(payment: Payment) -> PaymentCreateResponse:
 
 
 def to_detail_response(payment: Payment) -> PaymentDetailResponse:
-    """Map a Payment ORM instance to a detail response."""
+    """Map a Payment ORM instance to a detail response.
+
+    Args:
+        payment: Payment ORM instance.
+
+    Returns:
+        API response with full payment details.
+    """
     return PaymentDetailResponse(
         payment_id=payment.id,
         amount=payment.amount,

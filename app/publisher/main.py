@@ -10,7 +10,11 @@ from app.services.outbox_publisher import create_outbox_publisher
 
 
 async def main() -> None:
-    """Run the outbox publisher until interrupted."""
+    """Run the outbox publisher until interrupted.
+
+    Initializes database and RabbitMQ connections, polls pending outbox
+    records, and shuts down resources on exit.
+    """
     settings = get_settings()
     setup_logging(settings.log_level)
     await init_db()
@@ -28,5 +32,5 @@ async def main() -> None:
         await close_db()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     asyncio.run(main())

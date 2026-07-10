@@ -17,21 +17,42 @@ class PaymentRepository:
         self._session = session
 
     async def get_by_id(self, payment_id: uuid.UUID) -> Payment | None:
-        """Return a payment by primary key."""
+        """Return a payment by primary key.
+
+        Args:
+            payment_id: Payment UUID.
+
+        Returns:
+            Matching payment or None if not found.
+        """
         result = await self._session.execute(
             select(Payment).where(Payment.id == payment_id),
         )
         return result.scalar_one_or_none()
 
     async def get_by_idempotency_key(self, idempotency_key: str) -> Payment | None:
-        """Return a payment by idempotency key."""
+        """Return a payment by idempotency key.
+
+        Args:
+            idempotency_key: Client-supplied idempotency key.
+
+        Returns:
+            Matching payment or None if not found.
+        """
         result = await self._session.execute(
             select(Payment).where(Payment.idempotency_key == idempotency_key),
         )
         return result.scalar_one_or_none()
 
     async def create(self, payment: Payment) -> Payment:
-        """Add a new payment to the current session."""
+        """Add a new payment to the current session.
+
+        Args:
+            payment: Payment ORM instance to persist.
+
+        Returns:
+            The same payment instance attached to the session.
+        """
         self._session.add(payment)
         return payment
 
@@ -42,7 +63,13 @@ class PaymentRepository:
         status: PaymentStatus,
         processed_at: datetime,
     ) -> None:
-        """Update payment status and processed_at timestamp."""
+        """Update payment status and processed_at timestamp.
+
+        Args:
+            payment_id: Payment UUID.
+            status: New payment status.
+            processed_at: Timestamp when processing completed.
+        """
         await self._session.execute(
             update(Payment)
             .where(Payment.id == payment_id)

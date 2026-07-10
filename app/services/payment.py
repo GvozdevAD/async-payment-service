@@ -101,7 +101,17 @@ class PaymentService:
         return to_create_response(payment)
 
     async def get_payment(self, payment_id: uuid.UUID) -> PaymentDetailResponse:
-        """Return payment details or raise if not found."""
+        """Return payment details or raise if not found.
+
+        Args:
+            payment_id: Payment UUID.
+
+        Returns:
+            Full payment details.
+
+        Raises:
+            PaymentNotFoundError: If the payment does not exist.
+        """
         payment = await self._payment_repo.get_by_id(payment_id)
         if payment is None:
             raise PaymentNotFoundError()

@@ -13,7 +13,14 @@ request_id_ctx: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 
 def get_request_id(request: Request | None = None) -> str | None:
-    """Return the current request identifier from context or request state."""
+    """Return the current request identifier from context or request state.
+
+    Args:
+        request: Optional request whose state should be checked first.
+
+    Returns:
+        Request ID string or None if not available.
+    """
     if request is not None:
         state_request_id = getattr(request.state, "request_id", None)
         if state_request_id is not None:
@@ -29,7 +36,15 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        """Propagate or generate a request ID for the current request."""
+        """Propagate or generate a request ID for the current request.
+
+        Args:
+            request: Incoming HTTP request.
+            call_next: Next middleware or route handler.
+
+        Returns:
+            HTTP response with X-Request-ID header set.
+        """
         request_id = request.headers.get(REQUEST_ID_HEADER) or str(uuid.uuid4())
         request.state.request_id = request_id
         token = request_id_ctx.set(request_id)

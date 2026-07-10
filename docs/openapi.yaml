@@ -11,7 +11,9 @@ paths:
       tags:
       - health
       summary: Liveness
-      description: Return API liveness status.
+      description: "Return API liveness status.\n\nArgs:\n    health_service: Application\
+        \ health check service.\n\nReturns:\n    Liveness response indicating the\
+        \ API process is running."
       operationId: liveness_api_v1_health_get
       responses:
         '200':
@@ -25,7 +27,11 @@ paths:
       tags:
       - health
       summary: Readiness
-      description: Return API readiness status including PostgreSQL and RabbitMQ.
+      description: "Return API readiness status including PostgreSQL and RabbitMQ.\n\
+        \nArgs:\n    response: FastAPI response object for setting HTTP status code.\n\
+        \    session: Active async database session.\n    health_service: Application\
+        \ health check service.\n\nReturns:\n    Readiness response with dependency\
+        \ health details. HTTP 503 is set\n    when any dependency is unavailable."
       operationId: readiness_api_v1_health_ready_get
       responses:
         '200':
@@ -39,7 +45,11 @@ paths:
       tags:
       - payments
       summary: Create Payment
-      description: Create a new payment for asynchronous processing.
+      description: "Create a new payment for asynchronous processing.\n\nArgs:\n \
+        \   body: Payment creation payload.\n    idempotency_key: Client-supplied\
+        \ idempotency key from header.\n    payment_service: Request-scoped payment\
+        \ service.\n\nReturns:\n    Created or existing payment summary.\n\nRaises:\n\
+        \    ValidationAppError: If the idempotency key format is invalid."
       operationId: create_payment_api_v1_payments_post
       parameters:
       - name: Idempotency-Key
@@ -82,7 +92,10 @@ paths:
       tags:
       - payments
       summary: Get Payment
-      description: Return detailed information about a payment.
+      description: "Return detailed information about a payment.\n\nArgs:\n    payment_id:\
+        \ Payment UUID from the URL path.\n    payment_service: Request-scoped payment\
+        \ service.\n\nReturns:\n    Full payment details.\n\nRaises:\n    PaymentNotFoundError:\
+        \ If the payment does not exist."
       operationId: get_payment_api_v1_payments__payment_id__get
       parameters:
       - name: payment_id

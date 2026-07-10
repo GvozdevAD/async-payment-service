@@ -22,7 +22,15 @@ async def verify_api_key(
     x_api_key: Annotated[str | None, Header(alias=API_KEY_HEADER)] = None,
     settings: Settings = Depends(get_settings),
 ) -> None:
-    """Validate the static API key from the request header."""
+    """Validate the static API key from the request header.
+
+    Args:
+        x_api_key: Value of the X-API-Key header.
+        settings: Application settings with the expected API key.
+
+    Raises:
+        UnauthorizedError: If the header is missing or does not match.
+    """
     if x_api_key is None or not secrets.compare_digest(x_api_key, settings.api_key):
         raise UnauthorizedError()
 
@@ -30,7 +38,14 @@ async def verify_api_key(
 def get_payment_service(
     session: AsyncSession = Depends(get_db),
 ) -> PaymentService:
-    """Return a payment service bound to the request database session."""
+    """Return a payment service bound to the request database session.
+
+    Args:
+        session: Active async database session for the request.
+
+    Returns:
+        Payment service with request-scoped repositories.
+    """
     return PaymentService(
         session=session,
         payment_repo=PaymentRepository(session),

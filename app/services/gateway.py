@@ -16,7 +16,14 @@ class PaymentGateway(Protocol):
     """External payment gateway contract."""
 
     async def emulate(self, payment: Payment) -> PaymentStatus:
-        """Emulate gateway processing and return the final status."""
+        """Emulate gateway processing and return the final status.
+
+        Args:
+            payment: Payment record being processed.
+
+        Returns:
+            Simulated gateway outcome status.
+        """
 
 
 class GatewayEmulator:
