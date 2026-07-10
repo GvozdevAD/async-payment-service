@@ -153,6 +153,15 @@ curl -s -H "X-API-Key: $API_KEY" \
 
 Или: `make smoke`
 
+## Безопасность вебхуков
+
+`webhook_url` задаёт клиент, поэтому:
+
+- **SSRF-защита** — URL проверяется при создании платежа (схема/порт/credentials) и повторно резолвится перед доставкой с блокировкой приватных адресов.
+- **HMAC-подпись** — при заданном `WEBHOOK_SIGNING_SECRET` запросы подписываются HMAC-SHA256 (заголовки `X-Webhook-Signature`, `X-Webhook-Timestamp`).
+
+Детали, альтернативы и trade-offs: [ADR 0008](docs/adr/0008-webhook-security-ssrf-hmac.md). Переменные — в `.env.example`.
+
 ## Retry и DLQ
 
 | Этап | Попытки | Механизм |
@@ -162,6 +171,32 @@ curl -s -H "X-API-Key: $API_KEY" \
 | Consumer | 3 | `x-retry-count` header + nack/requeue → DLQ |
 
 DLQ: очередь `payments.new.dlq` (см. `RABBITMQ_PAYMENTS_NEW_DLQ`).
+
+## Trade-offs & Limitations
+
+Границы системы проговорены явно — детали решений в [ADR](docs/adr/README.md).
+
+### Delivery guarantees
+
+- **At-least-once** на всех этапах: `outbox → RabbitMQ` (ADR [0001](docs/adr/0001-outbox-pattern.md)), `RabbitMQ → consumer` (ADR [0004](docs/adr/0004-dlq-retry-strategy.md)), `webhook_deliveries → HTTP` (ADR [0003](docs/adr/0003-webhook-delivery-outbox.md)). Exactly-once нет → **получатель вебхука обязан быть идемпотентным по `payment_id`**.
+- **Дубли вебхуков** возможны при падении между успешным HTTP-ответом и `mark_delivered`: запись останется `PENDING` и будет доставлена повторно.
+- **Порядок событий не гарантируется** — параллельная обработка и ретраи могут переставлять доставки.
+- **Идемпотентность создания платежа** гарантируется UNIQUE-ключом + обработкой гонки `IntegrityError` (ADR [0005](docs/adr/0005-idempotency.md)).
+
+### Scaling
+
+- `publisher`, `consumer`, `webhook-dispatcher` — stateless и горизонтально масштабируются. Конкурентные поллеры безопасны за счёт `SELECT ... FOR UPDATE SKIP LOCKED`; повторный enqueue вебхука — за счёт `ON CONFLICT (payment_id) DO NOTHING`.
+- Состояние живёт в БД: при рестарте процессов ничего не теряется — незавершённые записи подхватываются на следующем поллинге.
+
+### Out of scope (сознательно)
+
+Rate-limiting, ротация API-ключей, listing/пагинация платежей, exactly-once, архивация/очистка outbox, пин на резолвнутый IP для вебхуков.
+
+### Known limitations
+
+- **DNS-rebinding** между валидацией/резолвом и TCP-коннектом закрыт не полностью (ADR [0008](docs/adr/0008-webhook-security-ssrf-hmac.md)).
+- **Requeue без задержки** на транзиентных ошибках consumer'а — попытки исчерпываются быстро (ADR [0004](docs/adr/0004-dlq-retry-strategy.md)).
+- **Один вебхук на платёж** (`webhook_deliveries.payment_id` UNIQUE): повторная нотификация о том же платеже по дизайну не создаётся.
 
 ## Переменные окружения
 
@@ -190,3 +225,9 @@ POST /payments → DB (payment + outbox)
                       ↓
               webhook (retry ×3)
 ```
+
+### Архитектурные решения (ADR)
+
+*Почему* приняты ключевые решения — в [docs/adr/](docs/adr/README.md): Outbox
+pattern, отдельные процессы publisher/dispatcher, DLQ-стратегия,
+идемпотентность, observability, distributed tracing и безопасность вебхуков.
