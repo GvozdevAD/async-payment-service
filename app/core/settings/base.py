@@ -1,6 +1,6 @@
 """Shared application settings loaded from environment variables."""
 
-from pydantic import field_validator
+from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +17,16 @@ class BaseAppSettings(BaseSettings):
     outbox_poll_interval_seconds: float = 5.0
     outbox_batch_size: int = 10
     outbox_publish_max_attempts: int = 3
+
+    gateway_min_delay_seconds: float = 2.0
+    gateway_max_delay_seconds: float = 5.0
+    gateway_success_rate: float = 0.9
+
+    webhook_max_attempts: int = 3
+    webhook_timeout_seconds: float = 10.0
+
+    consumer_max_attempts: int = 3
+    consumer_prefetch_count: int = 10
 
     rabbitmq_exchange: str
     rabbitmq_payments_new_queue: str
@@ -89,5 +99,60 @@ class BaseAppSettings(BaseSettings):
         """Ensure publish retry count is positive."""
         if value < 1:
             msg = "Outbox publish max attempts must be at least 1"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("gateway_min_delay_seconds")
+    @classmethod
+    def validate_gateway_min_delay(cls, value: float) -> float:
+        """Ensure gateway minimum delay is positive."""
+        if value <= 0:
+            msg = "Gateway min delay must be greater than 0"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("gateway_max_delay_seconds")
+    @classmethod
+    def validate_gateway_max_delay(cls, value: float, info: ValidationInfo) -> float:
+        """Ensure gateway max delay is not below min delay."""
+        min_delay = info.data.get("gateway_min_delay_seconds", 0.0)
+        if value < min_delay:
+            msg = "Gateway max delay must be >= min delay"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("gateway_success_rate")
+    @classmethod
+    def validate_gateway_success_rate(cls, value: float) -> float:
+        """Ensure gateway success rate is within (0, 1]."""
+        if value <= 0 or value > 1:
+            msg = "Gateway success rate must be in (0, 1]"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_max_attempts", "consumer_max_attempts")
+    @classmethod
+    def validate_retry_attempts(cls, value: int) -> int:
+        """Ensure retry attempt counts are positive."""
+        if value < 1:
+            msg = "Retry attempts must be at least 1"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_timeout_seconds")
+    @classmethod
+    def validate_webhook_timeout(cls, value: float) -> float:
+        """Ensure webhook timeout is positive."""
+        if value <= 0:
+            msg = "Webhook timeout must be greater than 0"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("consumer_prefetch_count")
+    @classmethod
+    def validate_consumer_prefetch_count(cls, value: int) -> int:
+        """Ensure consumer prefetch count is positive."""
+        if value < 1:
+            msg = "Consumer prefetch count must be at least 1"
             raise ValueError(msg)
         return value
