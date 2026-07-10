@@ -1,0 +1,1 @@
+"""Payment queue consumer package."""

@@ -42,6 +42,14 @@ class PaymentNotFoundError(AppException):
         return "The requested payment was not found."
 
 
+class PoisonMessageError(Exception):
+    """Unrecoverable queue message — should be rejected to DLQ.
+
+    Intentionally not an AppException: this is a messaging-layer error,
+    not an HTTP API error.
+    """
+
+
 class ValidationAppError(AppException):
     """Raised for business-level validation failures."""
 
