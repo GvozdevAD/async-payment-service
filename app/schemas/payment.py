@@ -8,7 +8,6 @@ from typing import Any
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from app.db.enums import Currency, PaymentStatus
-from app.db.models.payment import Payment
 
 
 class PaymentCreateRequest(BaseModel):
@@ -38,15 +37,6 @@ class PaymentCreateResponse(BaseModel):
     status: PaymentStatus
     created_at: datetime
 
-    @classmethod
-    def from_model(cls, payment: Payment) -> "PaymentCreateResponse":
-        """Build a create response from a Payment ORM instance."""
-        return cls(
-            payment_id=payment.id,
-            status=payment.status,
-            created_at=payment.created_at,
-        )
-
 
 class PaymentDetailResponse(BaseModel):
     """Detailed payment information."""
@@ -60,18 +50,3 @@ class PaymentDetailResponse(BaseModel):
     webhook_url: str
     created_at: datetime
     processed_at: datetime | None
-
-    @classmethod
-    def from_model(cls, payment: Payment) -> "PaymentDetailResponse":
-        """Build a detail response from a Payment ORM instance."""
-        return cls(
-            payment_id=payment.id,
-            amount=payment.amount,
-            currency=payment.currency,
-            description=payment.description,
-            metadata=payment.metadata_,
-            status=payment.status,
-            webhook_url=payment.webhook_url,
-            created_at=payment.created_at,
-            processed_at=payment.processed_at,
-        )
