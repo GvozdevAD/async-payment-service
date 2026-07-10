@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import (
 from app.core.settings import get_settings
 from app.db.models.outbox import Outbox
 from app.db.models.payment import Payment
+from app.db.models.webhook_delivery import WebhookDelivery
 
 TEST_API_KEY = "test-api-key-16chars"
 
@@ -31,6 +32,7 @@ def configure_test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "local")
     monkeypatch.setenv("API_KEY", TEST_API_KEY)
     monkeypatch.setenv("OUTBOX_PUBLISHER_ENABLED", "false")
+    monkeypatch.setenv("WEBHOOK_DISPATCHER_ENABLED", "false")
     monkeypatch.setenv(
         "DATABASE_URL",
         os.getenv(
@@ -56,6 +58,7 @@ def configure_test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RABBITMQ_PAYMENTS_NEW_QUEUE", "payments.new")
     monkeypatch.setenv("RABBITMQ_PAYMENTS_NEW_DLQ", "payments.new.dlq")
     monkeypatch.setenv("RABBITMQ_PAYMENTS_NEW_ROUTING_KEY", "payments.new")
+    monkeypatch.setenv("OTEL_ENABLED", "false")
     get_settings.cache_clear()
 
 
@@ -79,6 +82,7 @@ async def db_session(
         try:
             yield session
         finally:
+            await session.execute(delete(WebhookDelivery))
             await session.execute(delete(Outbox))
             await session.execute(delete(Payment))
             await session.commit()
@@ -106,6 +110,7 @@ async def db_session_factory(
         yield factory
     finally:
         async with factory() as cleanup:
+            await cleanup.execute(delete(WebhookDelivery))
             await cleanup.execute(delete(Outbox))
             await cleanup.execute(delete(Payment))
             await cleanup.commit()

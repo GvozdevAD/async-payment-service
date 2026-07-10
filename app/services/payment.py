@@ -9,6 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.constants import PAYMENT_NEW_EVENT_TYPE
 from app.core.exceptions import PaymentNotFoundError
 from app.core.logging import get_logger
+from app.core.metrics import record_payment_created
+from app.core.propagation import TRACE_CONTEXT_KEY, capture_trace_context
+from app.core.settings import Settings
+from app.core.url_guard import validate_webhook_url
 from app.db.enums import OutboxStatus, PaymentStatus
 from app.db.models.outbox import Outbox
 from app.db.models.payment import Payment
@@ -32,10 +36,12 @@ class PaymentService:
         session: AsyncSession,
         payment_repo: PaymentRepository,
         outbox_repo: OutboxRepository,
+        settings: Settings,
     ) -> None:
         self._session = session
         self._payment_repo = payment_repo
         self._outbox_repo = outbox_repo
+        self._settings = settings
 
     async def create_payment(
         self,
@@ -52,8 +58,10 @@ class PaymentService:
             The created or existing payment summary.
 
         Raises:
+            UnsafeWebhookUrlError: If the webhook URL violates the SSRF policy.
             IntegrityError: If commit fails for a non-idempotency reason.
         """
+        validate_webhook_url(str(data.webhook_url), self._settings)
         existing = await self._payment_repo.get_by_idempotency_key(idempotency_key)
         if existing is not None:
             return to_create_response(existing)
@@ -98,6 +106,7 @@ class PaymentService:
             raise
 
         await self._session.refresh(payment)
+        record_payment_created(payment.currency.value)
         return to_create_response(payment)
 
     async def get_payment(self, payment_id: uuid.UUID) -> PaymentDetailResponse:
@@ -120,9 +129,13 @@ class PaymentService:
     @staticmethod
     def _build_outbox_payload(payment: Payment) -> dict[str, Any]:
         """Build the outbox event payload for a new payment."""
-        return {
+        payload = {
             "payment_id": str(payment.id),
             "amount": str(payment.amount),
             "currency": payment.currency.value,
             "webhook_url": payment.webhook_url,
         }
+        trace_context = capture_trace_context()
+        if trace_context:
+            payload[TRACE_CONTEXT_KEY] = trace_context
+        return payload

@@ -1,7 +1,7 @@
 """Application-specific exceptions with safe client-facing messages."""
 
 
-class AppException(Exception):
+class AppError(Exception):
     """Base application exception with a safe client message."""
 
     status_code: int = 500
@@ -18,7 +18,7 @@ class AppException(Exception):
         return "An unexpected error occurred."
 
 
-class UnauthorizedError(AppException):
+class UnauthorizedError(AppError):
     """Raised when API key authentication fails."""
 
     status_code = 401
@@ -30,7 +30,7 @@ class UnauthorizedError(AppException):
         return "Invalid or missing API key."
 
 
-class PaymentNotFoundError(AppException):
+class PaymentNotFoundError(AppError):
     """Raised when a payment cannot be found."""
 
     status_code = 404
@@ -45,12 +45,12 @@ class PaymentNotFoundError(AppException):
 class PoisonMessageError(Exception):
     """Unrecoverable queue message — should be rejected to DLQ.
 
-    Intentionally not an AppException: this is a messaging-layer error,
+    Intentionally not an AppError: this is a messaging-layer error,
     not an HTTP API error.
     """
 
 
-class ValidationAppError(AppException):
+class ValidationAppError(AppError):
     """Raised for business-level validation failures."""
 
     status_code = 422
@@ -60,3 +60,19 @@ class ValidationAppError(AppException):
 
     def default_detail(self) -> str:
         return "The request data is invalid."
+
+
+class UnsafeWebhookUrlError(AppError):
+    """Raised when a webhook URL violates the outbound destination policy.
+
+    Guards against SSRF by rejecting disallowed schemes/ports and hosts that
+    resolve to private, loopback, link-local, or otherwise internal addresses.
+    """
+
+    status_code = 422
+    code = "unsafe_webhook_url"
+    title = "Unsafe Webhook URL"
+    type_suffix = "unsafe-webhook-url"
+
+    def default_detail(self) -> str:
+        return "The webhook URL is not allowed."

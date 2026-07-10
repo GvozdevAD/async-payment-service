@@ -7,6 +7,12 @@ from faststream import FastStream
 from app.consumer.handlers import register_handlers
 from app.core.logging import setup_logging
 from app.core.settings import get_settings
+from app.core.telemetry import (
+    instrument_logging,
+    instrument_sqlalchemy_if_ready,
+    setup_observability,
+    shutdown_observability,
+)
 from app.db.session import close_db, get_async_sessionmaker, init_db
 from app.messaging.broker import create_broker
 from app.messaging.topology import declare_topology
@@ -21,7 +27,10 @@ async def main() -> None:
     """
     settings = get_settings()
     setup_logging(settings.log_level)
+    observability = setup_observability(service_name="consumer", settings=settings)
+    instrument_logging()
     await init_db()
+    instrument_sqlalchemy_if_ready()
 
     broker = create_broker(settings.rabbitmq_url)
     processor = create_payment_processor(settings, get_async_sessionmaker())
@@ -37,6 +46,7 @@ async def main() -> None:
         await app.run()
     finally:
         await close_db()
+        shutdown_observability(observability)
 
 
 if __name__ == "__main__":  # pragma: no cover

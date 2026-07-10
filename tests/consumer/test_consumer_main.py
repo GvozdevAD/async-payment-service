@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.consumer import main as consumer_main
+from app.core.telemetry import ObservabilityHandles
 
 
 async def test_consumer_main_startup_shutdown(
@@ -31,6 +32,14 @@ async def test_consumer_main_startup_shutdown(
     monkeypatch.setattr(consumer_main, "register_handlers", mock_register_handlers)
     monkeypatch.setattr(consumer_main, "FastStream", mock_faststream)
     monkeypatch.setattr(consumer_main, "setup_logging", MagicMock())
+    monkeypatch.setattr(
+        consumer_main,
+        "setup_observability",
+        MagicMock(return_value=ObservabilityHandles(enabled=False)),
+    )
+    monkeypatch.setattr(consumer_main, "shutdown_observability", MagicMock())
+    monkeypatch.setattr(consumer_main, "instrument_logging", MagicMock())
+    monkeypatch.setattr(consumer_main, "instrument_sqlalchemy_if_ready", MagicMock())
     monkeypatch.setattr(consumer_main, "create_broker", MagicMock())
     monkeypatch.setattr(consumer_main, "get_async_sessionmaker", MagicMock())
 

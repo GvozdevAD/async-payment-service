@@ -18,6 +18,10 @@ services:
   consumer:
     networks:
       - payments-internal
+
+  webhook-dispatcher:
+    networks:
+      - payments-internal
       - payments-egress
 
   migrate:

@@ -2,8 +2,8 @@
 
 import logging
 
+from app.core.exceptions import AppError, PaymentNotFoundError
 from app.core.logging import get_logger, log_exception, setup_logging
-from app.core.exceptions import AppException, PaymentNotFoundError
 
 
 def test_setup_logging_configures_root_level() -> None:
@@ -47,8 +47,8 @@ def test_log_exception_unexpected_logs_traceback(caplog) -> None:
 
 
 def test_log_exception_base_app_exception_uses_default_detail(caplog) -> None:
-    """Base AppException should use its default safe detail message."""
-    exc = AppException()
+    """Base AppError should use its default safe detail message."""
+    exc = AppError()
 
     with caplog.at_level(logging.WARNING):
         log_exception(exc, request_id=None, method="GET", path="/")

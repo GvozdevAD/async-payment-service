@@ -12,6 +12,7 @@ from app.api.deps import API_KEY_HEADER, get_db, get_payment_service
 from app.api.exception_handlers import register_exception_handlers
 from app.api.v1 import health, payments
 from app.core.middleware import RequestIdMiddleware
+from app.core.settings import get_settings
 from app.repositories.outbox import OutboxRepository
 from app.repositories.payment import PaymentRepository
 from app.services.payment import PaymentService
@@ -44,6 +45,7 @@ async def payments_client(
             session=db_session,
             payment_repo=PaymentRepository(db_session),
             outbox_repo=OutboxRepository(db_session),
+            settings=get_settings(),
         )
 
     payments_app.dependency_overrides[get_db] = override_get_db

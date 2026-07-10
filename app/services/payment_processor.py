@@ -6,13 +6,15 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.exceptions import PoisonMessageError
+from app.core.propagation import TRACE_CONTEXT_KEY, capture_trace_context
 from app.core.settings import Settings
 from app.db.enums import PaymentStatus
 from app.db.models.payment import Payment
+from app.mappers.webhook import to_webhook_payload
 from app.messaging.schemas import PaymentNewMessage
 from app.repositories.payment import PaymentRepository
+from app.repositories.webhook_delivery import WebhookDeliveryRepository
 from app.services.gateway import GatewayEmulator, PaymentGateway
-from app.services.webhook import WebhookDeliveryError, WebhookService
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +26,9 @@ class PaymentProcessorService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         gateway: PaymentGateway,
-        webhook_service: WebhookService,
     ) -> None:
         self._session_factory = session_factory
         self._gateway = gateway
-        self._webhook_service = webhook_service
 
     async def process(self, message: PaymentNewMessage) -> None:
         """Process a payment-new queue message end-to-end.
@@ -46,8 +46,9 @@ class PaymentProcessorService:
         )
 
         async with self._session_factory() as session:
-            repo = PaymentRepository(session)
-            payment = await repo.get_by_id(message.payment_id)
+            payment_repo = PaymentRepository(session)
+            webhook_repo = WebhookDeliveryRepository(session)
+            payment = await payment_repo.get_by_id(message.payment_id)
             if payment is None:
                 msg = f"Payment not found: {message.payment_id}"
                 raise PoisonMessageError(msg)
@@ -58,41 +59,53 @@ class PaymentProcessorService:
                     payment.id,
                     payment.status.value,
                 )
-                await self._send_webhook(payment)
+                await self._enqueue_webhook(webhook_repo, payment)
+                await session.commit()
                 return
 
             gateway_status = await self._gateway.emulate(payment)
             processed_at = datetime.now(UTC)
-            await repo.update_status(
+            await payment_repo.update_status(
                 payment.id,
                 status=gateway_status,
                 processed_at=processed_at,
             )
+            payment.status = gateway_status
+            payment.processed_at = processed_at
+            await self._enqueue_webhook(webhook_repo, payment)
             await session.commit()
-            await session.refresh(payment)
 
-        await self._send_webhook(payment)
+    async def _enqueue_webhook(
+        self,
+        webhook_repo: WebhookDeliveryRepository,
+        payment: Payment,
+    ) -> None:
+        """Enqueue a webhook delivery record for the payment.
 
-    async def _send_webhook(self, payment: Payment) -> None:
-        """Send webhook and swallow delivery errors after DB update."""
-        try:
-            await self._webhook_service.send(payment)
-        except WebhookDeliveryError:
-            logger.error(
-                "Webhook failed after DB update payment_id=%s status=%s",
-                payment.id,
-                payment.status.value,
-            )
+        Args:
+            webhook_repo: Webhook delivery repository.
+            payment: Payment whose status should be delivered.
+        """
+        payload = to_webhook_payload(payment).model_dump(mode="json")
+        trace_context = capture_trace_context()
+        if trace_context:
+            payload[TRACE_CONTEXT_KEY] = trace_context
+        await webhook_repo.enqueue(
+            payment_id=payment.id,
+            url=payment.webhook_url,
+            payload=payload,
+            next_attempt_at=datetime.now(UTC),
+        )
 
 
 def create_payment_processor(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> PaymentProcessorService:
-    """Build a payment processor with default gateway and webhook services.
+    """Build a payment processor with default gateway service.
 
     Args:
-        settings: Application settings for gateway and webhook services.
+        settings: Application settings for gateway emulation.
         session_factory: Async SQLAlchemy session factory.
 
     Returns:
@@ -101,5 +114,4 @@ def create_payment_processor(
     return PaymentProcessorService(
         session_factory=session_factory,
         gateway=GatewayEmulator(settings),
-        webhook_service=WebhookService(settings),
     )

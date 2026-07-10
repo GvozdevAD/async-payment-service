@@ -59,6 +59,7 @@ async def create_payment(
 
     Raises:
         ValidationAppError: If the idempotency key format is invalid.
+        UnsafeWebhookUrlError: If the webhook URL violates the SSRF policy.
     """
     try:
         validated_key = _validate_idempotency_key(idempotency_key)

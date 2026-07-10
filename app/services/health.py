@@ -6,8 +6,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import Settings, get_settings
 from app.core.logging import get_logger
+from app.core.settings import Settings, get_settings
 from app.schemas.health import ComponentHealth, LivenessResponse, ReadinessResponse
 
 logger = get_logger(__name__)

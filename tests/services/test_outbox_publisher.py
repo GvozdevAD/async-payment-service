@@ -10,11 +10,15 @@ from aio_pika.exceptions import AMQPConnectionError
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.propagation import TRACE_CONTEXT_KEY
 from app.core.settings import LocalSettings
 from app.db.enums import OutboxStatus
 from app.db.models.outbox import Outbox
 from app.messaging.schemas import PaymentNewMessage
-from app.services.outbox_publisher import OutboxPublisherService
+from app.services.outbox_publisher import (
+    OutboxPublisherService,
+    create_outbox_publisher,
+)
 
 
 @pytest.fixture
@@ -328,8 +332,49 @@ async def test_run_forever_logs_iteration_error(
         AsyncMock(side_effect=[RuntimeError("db down"), asyncio.CancelledError()]),
     )
 
-    with caplog.at_level(logging.ERROR):
-        with pytest.raises(asyncio.CancelledError):
-            await service.run_forever()
+    with caplog.at_level(logging.ERROR), pytest.raises(asyncio.CancelledError):
+        await service.run_forever()
 
     assert "Outbox publisher iteration failed" in caplog.text
+
+
+async def test_publish_includes_trace_headers_when_carrier_present(
+    publisher_service: tuple[
+        OutboxPublisherService, AsyncMock, async_sessionmaker[AsyncSession]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Published messages should include trace context from outbox payload."""
+    service, broker, _session_factory = publisher_service
+    outbox = _make_outbox()
+    outbox.payload[TRACE_CONTEXT_KEY] = {"traceparent": "00-abc-def-01"}
+    repo = AsyncMock()
+    repo.get_pending_batch = AsyncMock(side_effect=[[outbox], []])
+    repo.mark_published = AsyncMock()
+    repo.count_pending = AsyncMock(return_value=0)
+    monkeypatch.setattr(
+        "app.services.outbox_publisher.OutboxRepository",
+        lambda _session: repo,
+    )
+
+    published = await service.publish_pending()
+
+    assert published == 1
+    publish_kwargs = broker.publish.await_args.kwargs
+    assert publish_kwargs["headers"]["traceparent"] == "00-abc-def-01"
+
+
+def test_create_outbox_publisher_factory(
+    publisher_settings: LocalSettings,
+) -> None:
+    """Factory should return a configured outbox publisher service."""
+    session_factory = MagicMock()
+    broker = MagicMock()
+
+    service = create_outbox_publisher(
+        publisher_settings,
+        session_factory,
+        broker,
+    )
+
+    assert isinstance(service, OutboxPublisherService)

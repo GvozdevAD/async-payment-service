@@ -25,8 +25,21 @@ class BaseAppSettings(BaseSettings):
     webhook_max_attempts: int = 3
     webhook_timeout_seconds: float = 10.0
 
+    webhook_dispatcher_poll_interval_seconds: float = 5.0
+    webhook_dispatcher_batch_size: int = 10
+
+    webhook_signature_enabled: bool = True
+    webhook_signing_secret: str = ""
+    webhook_allowed_schemes: tuple[str, ...] = ("https", "http")
+    webhook_allowed_ports: tuple[int, ...] = (80, 443)
+    webhook_block_private_networks: bool = True
+
     consumer_max_attempts: int = 3
     consumer_prefetch_count: int = 10
+
+    otel_enabled: bool = False
+    otel_exporter_otlp_endpoint: str = "http://localhost:4317"
+    otel_metric_export_interval_ms: int = 10_000
 
     rabbitmq_exchange: str
     rabbitmq_payments_new_queue: str
@@ -148,6 +161,54 @@ class BaseAppSettings(BaseSettings):
             raise ValueError(msg)
         return value
 
+    @field_validator("webhook_dispatcher_batch_size")
+    @classmethod
+    def validate_webhook_dispatcher_batch_size(cls, value: int) -> int:
+        """Ensure webhook dispatcher batch size is positive."""
+        if value < 1:
+            msg = "Webhook dispatcher batch size must be at least 1"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_dispatcher_poll_interval_seconds")
+    @classmethod
+    def validate_webhook_dispatcher_poll_interval(cls, value: float) -> float:
+        """Ensure webhook dispatcher poll interval is positive."""
+        if value <= 0:
+            msg = "Webhook dispatcher poll interval must be greater than 0"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_signing_secret")
+    @classmethod
+    def validate_webhook_signing_secret(cls, value: str) -> str:
+        """Ensure a provided webhook signing secret is long enough."""
+        if value and len(value) < 16:
+            msg = "Webhook signing secret must be at least 16 characters long"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_allowed_schemes")
+    @classmethod
+    def validate_webhook_allowed_schemes(
+        cls,
+        value: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """Ensure at least one webhook URL scheme is allowed."""
+        if not value:
+            msg = "Webhook allowed schemes must not be empty"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_allowed_ports")
+    @classmethod
+    def validate_webhook_allowed_ports(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        """Ensure at least one webhook URL port is allowed."""
+        if not value:
+            msg = "Webhook allowed ports must not be empty"
+            raise ValueError(msg)
+        return value
+
     @field_validator("consumer_prefetch_count")
     @classmethod
     def validate_consumer_prefetch_count(cls, value: int) -> int:
@@ -156,3 +217,17 @@ class BaseAppSettings(BaseSettings):
             msg = "Consumer prefetch count must be at least 1"
             raise ValueError(msg)
         return value
+
+    @field_validator("otel_metric_export_interval_ms")
+    @classmethod
+    def validate_otel_metric_export_interval(cls, value: int) -> int:
+        """Ensure OTel metric export interval is positive."""
+        if value < 1:
+            msg = "OTel metric export interval must be at least 1 ms"
+            raise ValueError(msg)
+        return value
+
+    @property
+    def app_env(self) -> str:
+        """Return the active application environment profile name."""
+        return "production" if type(self).__name__ == "ProductionSettings" else "local"

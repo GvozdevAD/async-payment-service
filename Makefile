@@ -17,6 +17,7 @@ PG_SERVICE       := postgres
 API_SERVICE      := api
 RABBIT_SERVICE   := rabbitmq
 PUBLISHER_SERVICE := publisher
+DISPATCHER_SERVICE := webhook-dispatcher
 MIGRATE_SERVICE  := migrate
 CONSUMER_SERVICE := consumer
 NGINX_SERVICE    := nginx
@@ -151,6 +152,28 @@ publisher-build: ## Build publisher Docker image
 
 publisher-logs: ## Tail publisher container logs
 	$(COMPOSE_LOCAL) logs -f $(PUBLISHER_SERVICE)
+
+.PHONY: dispatcher-dev dispatcher-prod dispatcher-up dispatcher-down dispatcher-restart dispatcher-build dispatcher-logs
+dispatcher-dev: env ## Run webhook dispatcher locally (local profile)
+	APP_ENV=$(APP_ENV_LOCAL) $(POETRY_RUN) python -m app.dispatcher.main
+
+dispatcher-prod: env ## Run webhook dispatcher locally (production profile)
+	APP_ENV=$(APP_ENV_PRODUCTION) $(POETRY_RUN) python -m app.dispatcher.main
+
+dispatcher-up: env ## Start webhook dispatcher container (local compose)
+	$(COMPOSE_LOCAL) up -d $(DISPATCHER_SERVICE)
+
+dispatcher-down: ## Stop webhook dispatcher container
+	$(COMPOSE_LOCAL) stop $(DISPATCHER_SERVICE)
+
+dispatcher-restart: ## Restart webhook dispatcher container
+	$(COMPOSE_LOCAL) restart $(DISPATCHER_SERVICE)
+
+dispatcher-build: ## Build webhook dispatcher Docker image
+	$(COMPOSE_LOCAL) build $(DISPATCHER_SERVICE)
+
+dispatcher-logs: ## Tail webhook dispatcher container logs
+	$(COMPOSE_LOCAL) logs -f $(DISPATCHER_SERVICE)
 
 # ------------------------------------------------------------------------------
 # @section RabbitMQ (rabbit)

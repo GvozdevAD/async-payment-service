@@ -5,6 +5,10 @@ import logging
 import random
 from typing import Protocol
 
+from app.core.metrics import (
+    record_payment_processed,
+    record_payment_processing_duration,
+)
 from app.core.settings import Settings
 from app.db.enums import PaymentStatus
 from app.db.models.payment import Payment
@@ -62,4 +66,6 @@ class GatewayEmulator:
             delay,
             status.value,
         )
+        record_payment_processing_duration(delay)
+        record_payment_processed(status.value)
         return status

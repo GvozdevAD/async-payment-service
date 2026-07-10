@@ -8,11 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_payment_service
 from app.core.constants import PAYMENT_NEW_EVENT_TYPE
-from app.db.enums import OutboxStatus
+from app.core.settings import get_settings
+from app.db.enums import Currency, OutboxStatus
 from app.db.models.outbox import Outbox
 from app.db.models.payment import Payment
 from app.schemas.payment import PaymentCreateRequest
-from app.db.enums import Currency
 
 
 @pytest.fixture
@@ -31,8 +31,8 @@ async def test_get_payment_service_creates_payment_and_outbox_in_database(
     db_session: AsyncSession,
     payment_create_request: PaymentCreateRequest,
 ) -> None:
-    """Wired PaymentService should persist payment and outbox through real repositories."""
-    service = get_payment_service(session=db_session)
+    """Wired PaymentService should persist payment and outbox via real repositories."""
+    service = get_payment_service(session=db_session, settings=get_settings())
 
     result = await service.create_payment(
         payment_create_request, "deps-integration-key"

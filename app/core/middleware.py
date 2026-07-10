@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 
+from opentelemetry import trace
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -55,5 +56,8 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
             raise
 
         request_id_ctx.reset(token)
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attribute("request.id", request_id)
         response.headers[REQUEST_ID_HEADER] = request_id
         return response

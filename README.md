@@ -1,6 +1,19 @@
 # Async Payment Processing Service
 
+[![CI](https://github.com/GvozdevAD/async-payment-service/actions/workflows/ci.yml/badge.svg)](https://github.com/GvozdevAD/async-payment-service/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![RabbitMQ](https://img.shields.io/badge/RabbitMQ-FF6600?logo=rabbitmq&logoColor=white)](https://www.rabbitmq.com/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-000000?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
+
 Микросервис асинхронной обработки платежей: API → Outbox → RabbitMQ → Consumer → Webhook.
+
+История изменений: [CHANGELOG.md](CHANGELOG.md)
 
 ## Стек
 
@@ -8,6 +21,28 @@
 - SQLAlchemy 2.0 (async) + PostgreSQL
 - RabbitMQ + FastStream
 - Alembic, Docker Compose
+- OpenTelemetry (traces + metrics via OTLP), Jaeger, Prometheus (local stack)
+
+## Observability
+
+При `OTEL_ENABLED=true` все процессы экспортируют **traces и metrics** через OTLP в `otel-collector`.
+
+| Инструмент | URL (local compose) |
+|------------|---------------------|
+| Jaeger UI | http://localhost:16686 |
+| Prometheus | http://localhost:9090 |
+
+Сквозной distributed trace: `POST /payments` → outbox → RabbitMQ → consumer → webhook dispatcher → HTTP webhook.
+
+Переменные окружения:
+
+| Env | Default | Описание |
+|-----|---------|----------|
+| `OTEL_ENABLED` | `false` | Включить traces + metrics |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP gRPC endpoint |
+| `OTEL_METRIC_EXPORT_INTERVAL_MS` | `10000` | Интервал экспорта метрик |
+
+Локальный стек observability поднимается вместе с `docker compose -f docker-compose.yaml -f docker-compose.local.yaml up`.
 
 ## Makefile
 
@@ -129,6 +164,15 @@ curl -s -H "X-API-Key: $API_KEY" \
 
 Или: `make smoke`
 
+## Безопасность вебхуков
+
+`webhook_url` задаёт клиент, поэтому:
+
+- **SSRF-защита** — URL проверяется при создании платежа (схема/порт/credentials) и повторно резолвится перед доставкой с блокировкой приватных адресов.
+- **HMAC-подпись** — при заданном `WEBHOOK_SIGNING_SECRET` запросы подписываются HMAC-SHA256 (заголовки `X-Webhook-Signature`, `X-Webhook-Timestamp`).
+
+Детали, альтернативы и trade-offs: [ADR 0008](docs/adr/0008-webhook-security-ssrf-hmac.md). Переменные — в `.env.example`.
+
 ## Retry и DLQ
 
 | Этап | Попытки | Механизм |
@@ -138,6 +182,32 @@ curl -s -H "X-API-Key: $API_KEY" \
 | Consumer | 3 | `x-retry-count` header + nack/requeue → DLQ |
 
 DLQ: очередь `payments.new.dlq` (см. `RABBITMQ_PAYMENTS_NEW_DLQ`).
+
+## Trade-offs & Limitations
+
+Границы системы проговорены явно — детали решений в [ADR](docs/adr/README.md).
+
+### Delivery guarantees
+
+- **At-least-once** на всех этапах: `outbox → RabbitMQ` (ADR [0001](docs/adr/0001-outbox-pattern.md)), `RabbitMQ → consumer` (ADR [0004](docs/adr/0004-dlq-retry-strategy.md)), `webhook_deliveries → HTTP` (ADR [0003](docs/adr/0003-webhook-delivery-outbox.md)). Exactly-once нет → **получатель вебхука обязан быть идемпотентным по `payment_id`**.
+- **Дубли вебхуков** возможны при падении между успешным HTTP-ответом и `mark_delivered`: запись останется `PENDING` и будет доставлена повторно.
+- **Порядок событий не гарантируется** — параллельная обработка и ретраи могут переставлять доставки.
+- **Идемпотентность создания платежа** гарантируется UNIQUE-ключом + обработкой гонки `IntegrityError` (ADR [0005](docs/adr/0005-idempotency.md)).
+
+### Scaling
+
+- `publisher`, `consumer`, `webhook-dispatcher` — stateless и горизонтально масштабируются. Конкурентные поллеры безопасны за счёт `SELECT ... FOR UPDATE SKIP LOCKED`; повторный enqueue вебхука — за счёт `ON CONFLICT (payment_id) DO NOTHING`.
+- Состояние живёт в БД: при рестарте процессов ничего не теряется — незавершённые записи подхватываются на следующем поллинге.
+
+### Out of scope (сознательно)
+
+Rate-limiting, ротация API-ключей, listing/пагинация платежей, exactly-once, архивация/очистка outbox, пин на резолвнутый IP для вебхуков.
+
+### Known limitations
+
+- **DNS-rebinding** между валидацией/резолвом и TCP-коннектом закрыт не полностью (ADR [0008](docs/adr/0008-webhook-security-ssrf-hmac.md)).
+- **Requeue без задержки** на транзиентных ошибках consumer'а — попытки исчерпываются быстро (ADR [0004](docs/adr/0004-dlq-retry-strategy.md)).
+- **Один вебхук на платёж** (`webhook_deliveries.payment_id` UNIQUE): повторная нотификация о том же платеже по дизайну не создаётся.
 
 ## Переменные окружения
 
@@ -166,3 +236,9 @@ POST /payments → DB (payment + outbox)
                       ↓
               webhook (retry ×3)
 ```
+
+### Архитектурные решения (ADR)
+
+*Почему* приняты ключевые решения — в [docs/adr/](docs/adr/README.md): Outbox
+pattern, отдельные процессы publisher/dispatcher, DLQ-стратегия,
+идемпотентность, observability, distributed tracing и безопасность вебхуков.

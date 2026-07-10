@@ -4,6 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -72,3 +74,21 @@ async def test_request_id_middleware_generates_id_when_missing(
     assert response.status_code == 200
     assert response.text
     assert response.headers[REQUEST_ID_HEADER] == response.text
+
+
+async def test_request_id_is_added_to_active_span(
+    middleware_client: AsyncClient,
+) -> None:
+    """Middleware should attach request.id to the active recording span."""
+    provider = TracerProvider()
+    trace.set_tracer_provider(provider)
+    tracer = trace.get_tracer(__name__)
+
+    with tracer.start_as_current_span("http_request") as span:
+        response = await middleware_client.get(
+            "/",
+            headers={REQUEST_ID_HEADER: "span-request-id"},
+        )
+
+    assert response.status_code == 200
+    assert span.attributes.get("request.id") == "span-request-id"
