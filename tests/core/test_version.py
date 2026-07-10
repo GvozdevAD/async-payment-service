@@ -1,9 +1,18 @@
 """Application version tests."""
 
+import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
 from app.version import get_version
+
+_PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
+
+
+def _expected_version() -> str:
+    """Return the project version declared in pyproject.toml."""
+    with _PYPROJECT.open("rb") as f:
+        return tomllib.load(f)["project"]["version"]
 
 
 def test_get_version_reads_pyproject() -> None:
@@ -12,7 +21,7 @@ def test_get_version_reads_pyproject() -> None:
 
     version = get_version()
 
-    assert version == "0.1.0"
+    assert version == _expected_version()
 
 
 def test_get_version_fallback_when_pyproject_missing() -> None:
