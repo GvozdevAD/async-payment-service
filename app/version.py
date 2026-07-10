@@ -9,5 +9,7 @@ from pathlib import Path
 def get_version() -> str:
     """Return the project version from pyproject.toml."""
     pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    if not pyproject_path.is_file():
+        return "0.0.0"
     with pyproject_path.open("rb") as f:
         return tomllib.load(f)["project"]["version"]

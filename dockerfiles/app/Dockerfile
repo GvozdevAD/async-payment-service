@@ -32,5 +32,6 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
 COPY gunicorn.conf.py ./
+COPY pyproject.toml ./
 
 EXPOSE 8000

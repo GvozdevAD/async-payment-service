@@ -8,6 +8,13 @@ x-app-env: &app-env
   OUTBOX_POLL_INTERVAL_SECONDS: 5
   OUTBOX_BATCH_SIZE: 10
   OUTBOX_PUBLISH_MAX_ATTEMPTS: 3
+  GATEWAY_MIN_DELAY_SECONDS: 2
+  GATEWAY_MAX_DELAY_SECONDS: 5
+  GATEWAY_SUCCESS_RATE: 0.9
+  WEBHOOK_MAX_ATTEMPTS: 3
+  WEBHOOK_TIMEOUT_SECONDS: 10
+  CONSUMER_MAX_ATTEMPTS: 3
+  CONSUMER_PREFETCH_COUNT: 10
   RABBITMQ_EXCHANGE: payments
   RABBITMQ_PAYMENTS_NEW_QUEUE: payments.new
   RABBITMQ_PAYMENTS_NEW_DLQ: payments.new.dlq
@@ -32,7 +39,7 @@ services:
       start_period: 10s
 
   rabbitmq:
-    image: rabbitmq:4.0-management
+    image: rabbitmq:4.3.2-management
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-payments}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-payments}
@@ -54,6 +61,12 @@ services:
       <<: *app-env
       APP_ENV: production
     command: python -m gunicorn -c gunicorn.conf.py app.main:app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +81,20 @@ services:
       <<: *app-env
       APP_ENV: production
     command: python -m app.publisher.main
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  consumer:
+    build:
+      context: .
+      dockerfile: dockerfiles/app/Dockerfile
+    environment:
+      <<: *app-env
+      APP_ENV: production
+    command: python -m app.consumer.main
     depends_on:
       postgres:
         condition: service_healthy

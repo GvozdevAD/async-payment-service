@@ -30,6 +30,12 @@ services:
     networks:
       - payments-net
 
+  consumer:
+    env_file:
+      - .env
+    networks:
+      - payments-net
+
   migrate:
     env_file:
       - .env
