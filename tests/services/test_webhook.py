@@ -8,6 +8,11 @@ import httpx
 import pytest
 
 from app.core.settings import Settings, get_settings
+from app.core.signing import (
+    SIGNATURE_HEADER,
+    TIMESTAMP_HEADER,
+    sign_payload,
+)
 from app.db.enums import PaymentStatus
 from app.services.webhook import (
     WebhookService,
@@ -112,6 +117,61 @@ async def test_deliver_once_creates_and_closes_internal_client(
         await service.deliver_once("https://example.com/webhook", _make_payload())
 
     mock_client.aclose.assert_awaited_once()
+
+
+@pytest.fixture
+def signing_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
+    """Return settings with webhook signing enabled for tests."""
+    monkeypatch.setenv("WEBHOOK_TIMEOUT_SECONDS", "5")
+    monkeypatch.setenv("WEBHOOK_SIGNATURE_ENABLED", "true")
+    monkeypatch.setenv("WEBHOOK_SIGNING_SECRET", "super-secret-value-32chars-long!")
+    get_settings.cache_clear()
+    return get_settings()
+
+
+async def test_deliver_once_signs_payload_when_enabled(
+    signing_settings: Settings,
+) -> None:
+    """When signing is enabled, requests carry HMAC signature headers."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = request.headers
+        captured["content"] = request.content
+        return httpx.Response(200)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = WebhookService(signing_settings, client=client)
+
+    await service.deliver_once("https://example.com/webhook", _make_payload())
+
+    headers = captured["headers"]
+    assert SIGNATURE_HEADER in headers
+    timestamp = int(headers[TIMESTAMP_HEADER])
+    expected = sign_payload(
+        signing_settings.webhook_signing_secret,
+        captured["content"],
+        timestamp,
+    )
+    assert headers[SIGNATURE_HEADER] == f"t={timestamp},v1={expected}"
+
+
+async def test_deliver_once_skips_signature_without_secret(
+    webhook_settings: Settings,
+) -> None:
+    """Without a configured secret, no signature headers should be sent."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = request.headers
+        return httpx.Response(200)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = WebhookService(webhook_settings, client=client)
+
+    await service.deliver_once("https://example.com/webhook", _make_payload())
+
+    assert SIGNATURE_HEADER not in captured["headers"]
 
 
 def test_is_retryable_exception_for_non_retryable_http_status() -> None:

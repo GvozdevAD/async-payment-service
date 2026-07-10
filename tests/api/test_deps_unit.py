@@ -30,6 +30,6 @@ def test_get_payment_service_builds_payment_service() -> None:
     """get_payment_service should wire repositories to PaymentService."""
     session = MagicMock()
 
-    service = get_payment_service(session=session)
+    service = get_payment_service(session=session, settings=get_settings())
 
     assert isinstance(service, PaymentService)

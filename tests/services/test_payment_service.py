@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import PaymentNotFoundError
+from app.core.exceptions import PaymentNotFoundError, UnsafeWebhookUrlError
+from app.core.settings import LocalSettings, get_settings
 from app.db.enums import Currency, PaymentStatus
 from app.db.models.payment import Payment
 from app.repositories.outbox import OutboxRepository
@@ -30,7 +31,15 @@ def payment_create_request() -> PaymentCreateRequest:
 
 
 @pytest.fixture
-def payment_service() -> tuple[
+def payment_settings() -> LocalSettings:
+    """Return local settings for payment service tests."""
+    return get_settings()
+
+
+@pytest.fixture
+def payment_service(
+    payment_settings: LocalSettings,
+) -> tuple[
     PaymentService, AsyncMock, PaymentRepository, OutboxRepository
 ]:
     """Return a payment service with mocked session and real repositories."""
@@ -42,7 +51,12 @@ def payment_service() -> tuple[
 
     payment_repo = PaymentRepository(session)
     outbox_repo = OutboxRepository(session)
-    service = PaymentService(session, payment_repo, outbox_repo)
+    service = PaymentService(
+        session,
+        payment_repo,
+        outbox_repo,
+        payment_settings,
+    )
     return service, session, payment_repo, outbox_repo
 
 
@@ -63,6 +77,27 @@ def _make_payment(
         status=PaymentStatus.PENDING,
         created_at=datetime.now(UTC),
     )
+
+
+async def test_create_payment_rejects_unsafe_webhook_url(
+    payment_service: tuple[
+        PaymentService, AsyncMock, PaymentRepository, OutboxRepository
+    ],
+    payment_create_request: PaymentCreateRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_payment should reject webhook URLs with a disallowed port."""
+    service, _session, payment_repo, _outbox_repo = payment_service
+    bad_request = payment_create_request.model_copy(
+        update={"webhook_url": "https://example.com:8080/webhook"},
+    )
+    get_by_key = AsyncMock()
+    monkeypatch.setattr(payment_repo, "get_by_idempotency_key", get_by_key)
+
+    with pytest.raises(UnsafeWebhookUrlError, match="port"):
+        await service.create_payment(bad_request, "order-new")
+
+    get_by_key.assert_not_awaited()
 
 
 async def test_create_payment_success(

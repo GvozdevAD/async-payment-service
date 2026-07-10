@@ -9,6 +9,7 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.exceptions import UnsafeWebhookUrlError
 from app.core.settings import LocalSettings
 from app.db.enums import WebhookDeliveryStatus
 from app.db.models.webhook_delivery import WebhookDelivery
@@ -32,6 +33,7 @@ def dispatcher_settings() -> LocalSettings:
         rabbitmq_payments_new_routing_key="payments.new",
         webhook_max_attempts=3,
         webhook_dispatcher_batch_size=10,
+        webhook_block_private_networks=False,
     )
 
 
@@ -204,6 +206,39 @@ async def test_dispatch_non_retryable_error_propagates(
 
     with pytest.raises(RuntimeError, match="unexpected"):
         await service.dispatch_pending()
+
+
+async def test_dispatch_blocks_unsafe_url(
+    dispatcher_service: tuple[
+        WebhookDispatcherService, AsyncMock, async_sessionmaker[AsyncSession]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A URL rejected by the SSRF policy should be marked failed, not delivered."""
+    service, webhook_service, _session_factory = dispatcher_service
+    delivery = _make_delivery()
+    repo = AsyncMock()
+    repo.get_due_batch = AsyncMock(side_effect=[[delivery], []])
+    repo.mark_failed = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.webhook_dispatcher.WebhookDeliveryRepository",
+        lambda _session: repo,
+    )
+
+    async def _block(_url: str, _settings: object) -> None:
+        raise UnsafeWebhookUrlError("blocked host")
+
+    monkeypatch.setattr(
+        "app.services.webhook_dispatcher.ensure_webhook_destination_allowed",
+        _block,
+    )
+
+    delivered = await service.dispatch_pending()
+
+    assert delivered == 0
+    webhook_service.deliver_once.assert_not_awaited()
+    repo.mark_failed.assert_awaited_once()
+    repo.reschedule.assert_not_called()
 
 
 async def test_start_and_stop_manage_client(

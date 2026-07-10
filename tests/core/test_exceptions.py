@@ -4,6 +4,7 @@ from app.core.exceptions import (
     AppError,
     PoisonMessageError,
     UnauthorizedError,
+    UnsafeWebhookUrlError,
     ValidationAppError,
 )
 
@@ -28,6 +29,14 @@ def test_unauthorized_error_default_detail() -> None:
     exc = UnauthorizedError()
 
     assert exc.detail == "Invalid or missing API key."
+
+
+def test_unsafe_webhook_url_error_default_detail() -> None:
+    """UnsafeWebhookUrlError without detail should use the default message."""
+    exc = UnsafeWebhookUrlError()
+
+    assert exc.status_code == 422
+    assert exc.detail == "The webhook URL is not allowed."
 
 
 def test_poison_message_error_is_standalone() -> None:
