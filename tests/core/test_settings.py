@@ -35,13 +35,20 @@ def _apply_env(
 
 def test_get_settings_local(monkeypatch: pytest.MonkeyPatch) -> None:
     """Local profile should enable embedded outbox publisher by default."""
-    _apply_env(monkeypatch, {"OUTBOX_PUBLISHER_ENABLED": "true"})
+    _apply_env(
+        monkeypatch,
+        {
+            "OUTBOX_PUBLISHER_ENABLED": "true",
+            "WEBHOOK_DISPATCHER_ENABLED": "true",
+        },
+    )
     monkeypatch.setenv("APP_ENV", "local")
 
     settings = get_settings()
 
     assert isinstance(settings, LocalSettings)
     assert settings.outbox_publisher_enabled is True
+    assert settings.webhook_dispatcher_enabled is True
 
 
 def test_get_settings_production(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -53,6 +60,7 @@ def test_get_settings_production(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert isinstance(settings, ProductionSettings)
     assert settings.outbox_publisher_enabled is False
+    assert settings.webhook_dispatcher_enabled is False
 
 
 def test_get_settings_unsupported_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -83,6 +91,8 @@ def test_get_settings_unsupported_raises(monkeypatch: pytest.MonkeyPatch) -> Non
         ("GATEWAY_SUCCESS_RATE", "1.5", "in \\(0, 1\\]"),
         ("WEBHOOK_MAX_ATTEMPTS", "0", "at least 1"),
         ("WEBHOOK_TIMEOUT_SECONDS", "0", "greater than 0"),
+        ("WEBHOOK_DISPATCHER_BATCH_SIZE", "0", "at least 1"),
+        ("WEBHOOK_DISPATCHER_POLL_INTERVAL_SECONDS", "0", "greater than 0"),
         ("CONSUMER_MAX_ATTEMPTS", "0", "at least 1"),
         ("CONSUMER_PREFETCH_COUNT", "0", "at least 1"),
     ],

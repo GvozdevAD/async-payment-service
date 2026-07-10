@@ -103,6 +103,100 @@ async def test_lifespan_cancels_publisher_task_on_shutdown(
         MagicMock(return_value=mock_publisher),
     )
     monkeypatch.setenv("OUTBOX_PUBLISHER_ENABLED", "true")
+    monkeypatch.setenv("WEBHOOK_DISPATCHER_ENABLED", "false")
+    from app.core.settings import get_settings
+
+    get_settings.cache_clear()
+
+    async with lifespan(app):
+        await asyncio.sleep(0)
+
+    assert cancelled.is_set()
+
+
+async def test_lifespan_without_dispatcher(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lifespan should skip dispatcher when webhook_dispatcher_enabled is false."""
+    mock_init_db = AsyncMock()
+    mock_close_db = AsyncMock()
+    monkeypatch.setattr("app.main.init_db", mock_init_db)
+    monkeypatch.setattr("app.main.close_db", mock_close_db)
+    monkeypatch.setattr("app.main.setup_logging", MagicMock())
+    monkeypatch.setenv("WEBHOOK_DISPATCHER_ENABLED", "false")
+    from app.core.settings import get_settings
+
+    get_settings.cache_clear()
+
+    async with lifespan(app):
+        pass
+
+    mock_init_db.assert_awaited_once()
+    mock_close_db.assert_awaited_once()
+
+
+async def test_lifespan_with_dispatcher_starts_and_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lifespan should start dispatcher task and stop it on shutdown."""
+    mock_init_db = AsyncMock()
+    mock_close_db = AsyncMock()
+    mock_dispatcher = MagicMock()
+    mock_dispatcher.start = AsyncMock()
+    mock_dispatcher.stop = AsyncMock()
+
+    async def fake_run_forever() -> None:
+        await asyncio.Event().wait()
+
+    mock_dispatcher.run_forever = fake_run_forever
+    monkeypatch.setattr("app.main.init_db", mock_init_db)
+    monkeypatch.setattr("app.main.close_db", mock_close_db)
+    monkeypatch.setattr("app.main.setup_logging", MagicMock())
+    monkeypatch.setattr("app.main.get_async_sessionmaker", MagicMock())
+    monkeypatch.setattr(
+        "app.main.create_webhook_dispatcher",
+        MagicMock(return_value=mock_dispatcher),
+    )
+    monkeypatch.setenv("WEBHOOK_DISPATCHER_ENABLED", "true")
+    monkeypatch.setenv("OUTBOX_PUBLISHER_ENABLED", "false")
+    from app.core.settings import get_settings
+
+    get_settings.cache_clear()
+
+    async with lifespan(app):
+        mock_dispatcher.start.assert_awaited_once()
+
+    mock_dispatcher.stop.assert_awaited_once()
+    mock_close_db.assert_awaited_once()
+
+
+async def test_lifespan_cancels_dispatcher_task_on_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dispatcher background task should be cancelled during lifespan teardown."""
+    mock_dispatcher = MagicMock()
+    mock_dispatcher.start = AsyncMock()
+    mock_dispatcher.stop = AsyncMock()
+    cancelled = asyncio.Event()
+
+    async def fake_run_forever() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    mock_dispatcher.run_forever = fake_run_forever
+    monkeypatch.setattr("app.main.init_db", AsyncMock())
+    monkeypatch.setattr("app.main.close_db", AsyncMock())
+    monkeypatch.setattr("app.main.setup_logging", MagicMock())
+    monkeypatch.setattr("app.main.get_async_sessionmaker", MagicMock())
+    monkeypatch.setattr(
+        "app.main.create_webhook_dispatcher",
+        MagicMock(return_value=mock_dispatcher),
+    )
+    monkeypatch.setenv("WEBHOOK_DISPATCHER_ENABLED", "true")
+    monkeypatch.setenv("OUTBOX_PUBLISHER_ENABLED", "false")
     from app.core.settings import get_settings
 
     get_settings.cache_clear()

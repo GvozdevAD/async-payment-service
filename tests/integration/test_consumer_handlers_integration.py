@@ -5,12 +5,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from faststream.rabbit import RabbitBroker, TestRabbitBroker
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.consumer.handlers import register_handlers
 from app.core.settings import Settings, get_settings
-from app.db.enums import Currency, PaymentStatus
+from app.db.enums import Currency, PaymentStatus, WebhookDeliveryStatus
 from app.db.models.payment import Payment
+from app.db.models.webhook_delivery import WebhookDelivery
 from app.messaging.schemas import PaymentNewMessage
 from app.services.payment_processor import (
     PaymentProcessorService,
@@ -59,25 +61,23 @@ def _make_queue_message(
 @pytest.fixture
 def processor_with_mocks(
     db_session_factory: async_sessionmaker[AsyncSession],
-) -> tuple[PaymentProcessorService, AsyncMock, AsyncMock]:
-    """Return a real processor with mocked gateway and webhook boundaries."""
+) -> tuple[PaymentProcessorService, AsyncMock]:
+    """Return a real processor with mocked gateway boundary."""
     gateway = AsyncMock()
     gateway.emulate = AsyncMock(return_value=PaymentStatus.SUCCEEDED)
-    webhook = AsyncMock()
-    webhook.send = AsyncMock()
-    processor = PaymentProcessorService(db_session_factory, gateway, webhook)
-    return processor, gateway, webhook
+    processor = PaymentProcessorService(db_session_factory, gateway)
+    return processor, gateway
 
 
 async def test_subscriber_processes_payment_end_to_end(
     db_session: AsyncSession,
     db_session_factory: async_sessionmaker[AsyncSession],
     consumer_settings: Settings,
-    processor_with_mocks: tuple[PaymentProcessorService, AsyncMock, AsyncMock],
+    processor_with_mocks: tuple[PaymentProcessorService, AsyncMock],
 ) -> None:
-    """Published queue message should update payment status and trigger webhook."""
+    """Published queue message should update payment status and enqueue webhook."""
     payment = await _persist_pending_payment(db_session)
-    processor, gateway, webhook = processor_with_mocks
+    processor, gateway = processor_with_mocks
     message = _make_queue_message(payment=payment)
 
     broker = RabbitBroker()
@@ -95,8 +95,14 @@ async def test_subscriber_processes_payment_end_to_end(
         assert updated.status == PaymentStatus.SUCCEEDED
         assert updated.processed_at is not None
 
+        result = await verify_session.execute(
+            select(WebhookDelivery).where(WebhookDelivery.payment_id == payment.id),
+        )
+        delivery = result.scalar_one_or_none()
+        assert delivery is not None
+        assert delivery.status == WebhookDeliveryStatus.PENDING
+
     gateway.emulate.assert_awaited_once()
-    webhook.send.assert_awaited_once()
 
 
 async def test_subscriber_with_factory_processor_updates_payment(
@@ -110,18 +116,10 @@ async def test_subscriber_with_factory_processor_updates_payment(
 
     gateway = AsyncMock()
     gateway.emulate = AsyncMock(return_value=PaymentStatus.SUCCEEDED)
-    webhook = AsyncMock()
-    webhook.send = AsyncMock()
 
-    with (
-        patch(
-            "app.services.payment_processor.GatewayEmulator",
-            return_value=gateway,
-        ),
-        patch(
-            "app.services.payment_processor.WebhookService",
-            return_value=webhook,
-        ),
+    with patch(
+        "app.services.payment_processor.GatewayEmulator",
+        return_value=gateway,
     ):
         processor = create_payment_processor(consumer_settings, db_session_factory)
 
@@ -139,16 +137,21 @@ async def test_subscriber_with_factory_processor_updates_payment(
         assert updated is not None
         assert updated.status == PaymentStatus.SUCCEEDED
 
+        result = await verify_session.execute(
+            select(WebhookDelivery).where(WebhookDelivery.payment_id == payment.id),
+        )
+        delivery = result.scalar_one_or_none()
+        assert delivery is not None
+
     gateway.emulate.assert_awaited_once()
-    webhook.send.assert_awaited_once()
 
 
 async def test_subscriber_ignores_unknown_payment_without_side_effects(
     consumer_settings: Settings,
-    processor_with_mocks: tuple[PaymentProcessorService, AsyncMock, AsyncMock],
+    processor_with_mocks: tuple[PaymentProcessorService, AsyncMock],
 ) -> None:
-    """Unknown payment id should not call gateway or webhook."""
-    processor, gateway, webhook = processor_with_mocks
+    """Unknown payment id should not call gateway or enqueue webhook."""
+    processor, gateway = processor_with_mocks
     message = PaymentNewMessage(
         outbox_id=uuid.uuid4(),
         event_type="payments.new",
@@ -168,4 +171,3 @@ async def test_subscriber_ignores_unknown_payment_without_side_effects(
         )
 
     gateway.emulate.assert_not_awaited()
-    webhook.send.assert_not_awaited()

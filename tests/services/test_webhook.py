@@ -2,17 +2,14 @@
 
 import uuid
 from datetime import UTC, datetime
-from decimal import Decimal
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.core.settings import Settings, get_settings
-from app.db.enums import Currency, PaymentStatus
-from app.db.models.payment import Payment
+from app.db.enums import PaymentStatus
 from app.services.webhook import (
-    WebhookDeliveryError,
     WebhookService,
     _is_retryable_exception,
     is_retryable_status,
@@ -21,77 +18,69 @@ from app.services.webhook import (
 
 @pytest.fixture
 def webhook_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
-    """Return settings with fast webhook retries for tests."""
-    monkeypatch.setenv("WEBHOOK_MAX_ATTEMPTS", "3")
+    """Return settings with webhook timeout for tests."""
     monkeypatch.setenv("WEBHOOK_TIMEOUT_SECONDS", "5")
     get_settings.cache_clear()
     return get_settings()
 
 
-def _make_payment() -> Payment:
-    """Build a processed payment for webhook tests."""
-    return Payment(
-        id=uuid.uuid4(),
-        amount=Decimal("100.00"),
-        currency=Currency.RUB,
-        description="Webhook test",
-        metadata_={"order_id": "1"},
-        webhook_url="https://example.com/webhook",
-        idempotency_key="webhook-test",
-        status=PaymentStatus.SUCCEEDED,
-        processed_at=datetime.now(UTC),
-        created_at=datetime.now(UTC),
+def _make_payload() -> dict[str, object]:
+    """Build a webhook payload dict for tests."""
+    return {
+        "payment_id": str(uuid.uuid4()),
+        "status": PaymentStatus.SUCCEEDED.value,
+        "amount": "100.00",
+        "currency": "RUB",
+        "description": "Webhook test",
+        "metadata": {"order_id": "1"},
+        "processed_at": datetime.now(UTC).isoformat(),
+    }
+
+
+async def test_deliver_once_success(webhook_settings: Settings) -> None:
+    """A 200 response should return the status code."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = WebhookService(webhook_settings, client=client)
+
+    status_code = await service.deliver_once(
+        "https://example.com/webhook", _make_payload()
     )
 
+    assert status_code == 200
 
-async def test_send_success(webhook_settings) -> None:
-    """A 200 response should complete without error."""
+
+async def test_deliver_once_raises_on_429(webhook_settings: Settings) -> None:
+    """429 responses should raise HTTPStatusError for dispatcher retry."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200)
+        return httpx.Response(429)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     service = WebhookService(webhook_settings, client=client)
 
-    await service.send(_make_payment())
+    with pytest.raises(httpx.HTTPStatusError):
+        await service.deliver_once("https://example.com/webhook", _make_payload())
 
 
-async def test_send_retries_on_429(webhook_settings) -> None:
-    """429 responses should be retried until success."""
-    attempts = {"count": 0}
+async def test_deliver_once_raises_on_503(webhook_settings: Settings) -> None:
+    """5xx responses should raise HTTPStatusError."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        attempts["count"] += 1
-        if attempts["count"] < 3:
-            return httpx.Response(429)
-        return httpx.Response(200)
+        return httpx.Response(503)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     service = WebhookService(webhook_settings, client=client)
 
-    await service.send(_make_payment())
-    assert attempts["count"] == 3
+    with pytest.raises(httpx.HTTPStatusError):
+        await service.deliver_once("https://example.com/webhook", _make_payload())
 
 
-async def test_send_retries_on_503(webhook_settings) -> None:
-    """5xx responses should be retried."""
-    attempts = {"count": 0}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        attempts["count"] += 1
-        if attempts["count"] == 1:
-            return httpx.Response(503)
-        return httpx.Response(200)
-
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    service = WebhookService(webhook_settings, client=client)
-
-    await service.send(_make_payment())
-    assert attempts["count"] == 2
-
-
-async def test_send_no_retry_on_404(webhook_settings) -> None:
-    """4xx client errors should not be retried."""
+async def test_deliver_once_returns_on_404(webhook_settings: Settings) -> None:
+    """Non-retryable 4xx should return status without raising."""
     attempts = {"count": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -101,24 +90,17 @@ async def test_send_no_retry_on_404(webhook_settings) -> None:
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     service = WebhookService(webhook_settings, client=client)
 
-    await service.send(_make_payment())
+    status_code = await service.deliver_once(
+        "https://example.com/webhook", _make_payload()
+    )
+
+    assert status_code == 404
     assert attempts["count"] == 1
 
 
-async def test_send_raises_after_max_attempts(webhook_settings) -> None:
-    """Persistent 503 should raise after max attempts."""
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(503)
-
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    service = WebhookService(webhook_settings, client=client)
-
-    with pytest.raises(WebhookDeliveryError):
-        await service.send(_make_payment())
-
-
-async def test_send_creates_and_closes_internal_client(webhook_settings) -> None:
+async def test_deliver_once_creates_and_closes_internal_client(
+    webhook_settings: Settings,
+) -> None:
     """Service without injected client should create and close its own client."""
     mock_client = AsyncMock()
     request = httpx.Request("POST", "https://example.com/webhook")
@@ -127,42 +109,9 @@ async def test_send_creates_and_closes_internal_client(webhook_settings) -> None
 
     with patch("app.services.webhook.httpx.AsyncClient", return_value=mock_client):
         service = WebhookService(webhook_settings)
-        await service.send(_make_payment())
+        await service.deliver_once("https://example.com/webhook", _make_payload())
 
     mock_client.aclose.assert_awaited_once()
-
-
-async def test_send_raises_non_retryable_http_status_error(webhook_settings) -> None:
-    """Non-retryable HTTPStatusError from retry loop should propagate."""
-    service = WebhookService(webhook_settings, client=httpx.AsyncClient())
-    payment = _make_payment()
-
-    with patch.object(
-        service,
-        "_post_with_retry",
-        side_effect=httpx.HTTPStatusError(
-            "bad request",
-            request=httpx.Request("POST", payment.webhook_url),
-            response=httpx.Response(400),
-        ),
-    ):
-        with pytest.raises(httpx.HTTPStatusError):
-            await service.send(payment)
-
-
-async def test_send_wraps_retry_error_in_webhook_delivery_error(
-    webhook_settings,
-) -> None:
-    """Exhausted tenacity retries should raise WebhookDeliveryError."""
-    from tenacity import RetryError
-
-    service = WebhookService(webhook_settings, client=httpx.AsyncClient())
-    payment = _make_payment()
-    retry_error = RetryError(MagicMock())
-
-    with patch.object(service, "_post_with_retry", side_effect=retry_error):
-        with pytest.raises(WebhookDeliveryError):
-            await service.send(payment)
 
 
 def test_is_retryable_exception_for_non_retryable_http_status() -> None:
