@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     database_url: str
     database_url_sync: str
     rabbitmq_url: str
+    api_key: str
     error_type_base: str = "https://payments.local/errors"
     log_level: str = "INFO"
 
@@ -30,6 +31,18 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         if not value.startswith("postgresql"):
             msg = "Database URL must use a PostgreSQL driver"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, value: str) -> str:
+        """Ensure API key is provided and meets minimum length."""
+        if not value.strip():
+            msg = "API key must not be empty"
+            raise ValueError(msg)
+        if len(value) < 16:
+            msg = "API key must be at least 16 characters long"
             raise ValueError(msg)
         return value
 
