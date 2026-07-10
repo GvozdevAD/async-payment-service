@@ -5,14 +5,18 @@ from typing import Any
 
 from aio_pika import IncomingMessage
 from faststream.exceptions import NackMessage, RejectMessage
+from opentelemetry import trace
 from pydantic import ValidationError
 
 from app.core.exceptions import PoisonMessageError
+from app.core.metrics import record_message_dlq
+from app.core.propagation import extract_context_from_headers
 from app.core.settings import Settings
 from app.messaging.schemas import PaymentNewMessage
 from app.services.payment_processor import PaymentProcessorService
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 RETRY_COUNT_HEADER = "x-retry-count"
 
@@ -81,9 +85,40 @@ async def handle_payment_new_message(
         RejectMessage: For poison messages or after max delivery attempts.
         NackMessage: For transient errors before max delivery attempts.
     """
+    parent_ctx = extract_context_from_headers(
+        raw_message.headers if raw_message is not None else None,
+    )
+    span_attributes = {
+        "payment.id": str(message.payment_id),
+        "messaging.delivery_count": delivery_count,
+    }
+    with tracer.start_as_current_span(
+        "process_payment_new",
+        context=parent_ctx,
+        attributes=span_attributes,
+    ):
+        await _process_with_delivery_policy(
+            message,
+            processor=processor,
+            settings=settings,
+            delivery_count=delivery_count,
+            raw_message=raw_message,
+        )
+
+
+async def _process_with_delivery_policy(
+    message: PaymentNewMessage,
+    *,
+    processor: PaymentProcessorService,
+    settings: Settings,
+    delivery_count: int = 0,
+    raw_message: IncomingMessage | None = None,
+) -> None:
+    """Run processor.process and map failures to broker ack actions."""
     try:
         await processor.process(message)
     except (PoisonMessageError, ValidationError) as exc:
+        record_message_dlq()
         raise RejectMessage(requeue=False) from exc
     except Exception as exc:
         next_attempt = delivery_count + 1
@@ -95,6 +130,7 @@ async def handle_payment_new_message(
                 delivery_count,
                 exc_info=exc,
             )
+            record_message_dlq()
             raise RejectMessage(requeue=False) from exc
         if raw_message is not None:
             set_retry_count(raw_message, next_attempt)

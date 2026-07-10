@@ -24,8 +24,15 @@ def is_retryable_status(status_code: int) -> bool:
     return status_code in WEBHOOK_RETRYABLE_STATUS_CODES or status_code >= 500
 
 
-def _is_retryable_exception(exc: BaseException) -> bool:
-    """Return whether an exception should trigger a webhook retry."""
+def is_retryable_exception(exc: BaseException) -> bool:
+    """Return whether an exception should trigger a webhook retry.
+
+    Args:
+        exc: Exception raised during a webhook delivery attempt.
+
+    Returns:
+        True for retryable HTTP/transport errors, False otherwise.
+    """
     if isinstance(exc, httpx.HTTPStatusError):
         return is_retryable_status(exc.response.status_code)
     return isinstance(

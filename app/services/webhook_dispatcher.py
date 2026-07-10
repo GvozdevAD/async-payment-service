@@ -5,13 +5,21 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 import httpx
+from opentelemetry import trace
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.metrics import record_webhook_delivery
+from app.core.propagation import (
+    TRACE_CONTEXT_KEY,
+    context_from_carrier,
+    strip_trace_context,
+)
 from app.core.settings import Settings
 from app.repositories.webhook_delivery import WebhookDeliveryRepository
-from app.services.webhook import WebhookService, _is_retryable_exception
+from app.services.webhook import WebhookService, is_retryable_exception
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def compute_backoff_seconds(attempts: int) -> float:
@@ -111,68 +119,85 @@ class WebhookDispatcherService:
 
                 delivery = records[0]
                 processed_at = datetime.now(UTC)
-                try:
-                    status_code = await self._webhook_service.deliver_once(
-                        delivery.url,
-                        delivery.payload,
-                    )
-                except Exception as exc:
-                    if not _is_retryable_exception(exc):
-                        raise
+                trace_carrier = delivery.payload.get(TRACE_CONTEXT_KEY)
+                parent_ctx = (
+                    context_from_carrier(trace_carrier)
+                    if isinstance(trace_carrier, dict)
+                    else None
+                )
+                webhook_payload = strip_trace_context(delivery.payload)
+                with tracer.start_as_current_span(
+                    "webhook.dispatch",
+                    context=parent_ctx,
+                    attributes={"payment.id": str(delivery.payment_id)},
+                ):
+                    try:
+                        status_code = await self._webhook_service.deliver_once(
+                            delivery.url,
+                            webhook_payload,
+                        )
+                    except Exception as exc:
+                        if not is_retryable_exception(exc):
+                            raise
 
-                    next_attempts = delivery.attempts + 1
-                    status_code = (
-                        exc.response.status_code
-                        if isinstance(exc, httpx.HTTPStatusError)
-                        else None
-                    )
-                    error = str(exc)
-                    if next_attempts >= self._settings.webhook_max_attempts:
-                        await repo.mark_failed(
+                        next_attempts = delivery.attempts + 1
+                        status_code = (
+                            exc.response.status_code
+                            if isinstance(exc, httpx.HTTPStatusError)
+                            else None
+                        )
+                        error = str(exc)
+                        if next_attempts >= self._settings.webhook_max_attempts:
+                            await repo.mark_failed(
+                                delivery.id,
+                                processed_at=processed_at,
+                                status_code=status_code,
+                                error=error,
+                            )
+                            record_webhook_delivery("failed")
+                            logger.error(
+                                "Webhook delivery failed permanently "
+                                "delivery_id=%s payment_id=%s attempts=%d",
+                                delivery.id,
+                                delivery.payment_id,
+                                next_attempts,
+                            )
+                            return False
+
+                        backoff = compute_backoff_seconds(next_attempts)
+                        await repo.reschedule(
                             delivery.id,
-                            processed_at=processed_at,
+                            attempts=next_attempts,
+                            next_attempt_at=processed_at + timedelta(seconds=backoff),
                             status_code=status_code,
                             error=error,
                         )
-                        logger.error(
-                            "Webhook delivery failed permanently "
-                            "delivery_id=%s payment_id=%s attempts=%d",
+                        logger.warning(
+                            "Webhook delivery rescheduled delivery_id=%s "
+                            "payment_id=%s attempt=%d/%d",
                             delivery.id,
                             delivery.payment_id,
                             next_attempts,
+                            self._settings.webhook_max_attempts,
                         )
                         return False
 
-                    backoff = compute_backoff_seconds(next_attempts)
-                    await repo.reschedule(
+                    await repo.mark_delivered(
                         delivery.id,
-                        attempts=next_attempts,
-                        next_attempt_at=processed_at + timedelta(seconds=backoff),
+                        processed_at=processed_at,
                         status_code=status_code,
-                        error=error,
                     )
-                    logger.warning(
-                        "Webhook delivery rescheduled delivery_id=%s "
-                        "payment_id=%s attempt=%d/%d",
+                    record_webhook_delivery("delivered")
+                    current_span = trace.get_current_span()
+                    if current_span.is_recording():
+                        current_span.set_attribute("http.status_code", status_code)
+                    logger.info(
+                        "Webhook delivered delivery_id=%s payment_id=%s status_code=%s",
                         delivery.id,
                         delivery.payment_id,
-                        next_attempts,
-                        self._settings.webhook_max_attempts,
+                        status_code,
                     )
-                    return False
-
-                await repo.mark_delivered(
-                    delivery.id,
-                    processed_at=processed_at,
-                    status_code=status_code,
-                )
-                logger.info(
-                    "Webhook delivered delivery_id=%s payment_id=%s status_code=%s",
-                    delivery.id,
-                    delivery.payment_id,
-                    status_code,
-                )
-                return True
+                    return True
 
 
 def create_webhook_dispatcher(

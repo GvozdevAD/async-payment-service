@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import OutboxStatus
@@ -46,6 +46,20 @@ class OutboxRepository:
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def count_pending(self) -> int:
+        """Return the number of pending outbox records.
+
+        Returns:
+            Count of outbox rows with PENDING status.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(Outbox)
+            .where(Outbox.status == OutboxStatus.PENDING)
+        )
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one())
 
     async def mark_published(
         self,

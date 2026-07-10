@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.exceptions import PoisonMessageError
+from app.core.propagation import TRACE_CONTEXT_KEY, capture_trace_context
 from app.core.settings import Settings
 from app.db.enums import PaymentStatus
 from app.db.models.payment import Payment
@@ -86,6 +87,9 @@ class PaymentProcessorService:
             payment: Payment whose status should be delivered.
         """
         payload = to_webhook_payload(payment).model_dump(mode="json")
+        trace_context = capture_trace_context()
+        if trace_context:
+            payload[TRACE_CONTEXT_KEY] = trace_context
         await webhook_repo.enqueue(
             payment_id=payment.id,
             url=payment.webhook_url,
