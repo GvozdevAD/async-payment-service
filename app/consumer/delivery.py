@@ -1,6 +1,7 @@
 """Consumer message delivery helpers."""
 
 import logging
+from typing import Any
 
 from aio_pika import IncomingMessage
 from faststream.exceptions import NackMessage, RejectMessage
@@ -13,28 +14,50 @@ from app.services.payment_processor import PaymentProcessorService
 
 logger = logging.getLogger(__name__)
 
+RETRY_COUNT_HEADER = "x-retry-count"
+
 
 def get_delivery_count(raw_message: IncomingMessage, queue_name: str) -> int:
-    """Return how many times a message was already dead-lettered or redelivered.
+    """Return how many times a message was already delivered to the consumer.
+
+    Priority:
+    1. ``x-retry-count`` header set by this consumer on prior nacks.
+    2. ``x-death`` count for the target queue (broker dead-letter metadata).
+    3. ``0`` for the first delivery.
 
     Args:
         raw_message: Raw aio-pika incoming message with broker headers.
         queue_name: Queue name used to match x-death entries.
 
     Returns:
-        Delivery attempt count derived from x-death or redelivered flag.
+        Number of prior delivery attempts before the current one.
     """
-    headers = raw_message.headers
-    if headers:
-        x_death = headers.get("x-death")
-        if x_death:
-            for entry in x_death:
-                if entry.get("queue") == queue_name:
-                    count = entry.get("count", 0)
-                    if isinstance(count, int):
-                        return count
+    headers = raw_message.headers or {}
+    retry_count = headers.get(RETRY_COUNT_HEADER)
+    if isinstance(retry_count, int):
+        return retry_count
 
-    return 1 if raw_message.redelivered else 0
+    x_death = headers.get("x-death")
+    if x_death:
+        for entry in x_death:
+            if entry.get("queue") == queue_name:
+                count = entry.get("count", 0)
+                if isinstance(count, int):
+                    return count
+
+    return 0
+
+
+def set_retry_count(raw_message: IncomingMessage, retry_count: int) -> None:
+    """Persist the retry counter in message headers before nack/requeue.
+
+    Args:
+        raw_message: Raw aio-pika incoming message to annotate.
+        retry_count: Attempt count to store in ``x-retry-count``.
+    """
+    headers: dict[str, Any] = dict(raw_message.headers or {})
+    headers[RETRY_COUNT_HEADER] = retry_count
+    raw_message.headers = headers
 
 
 async def handle_payment_new_message(
@@ -43,6 +66,7 @@ async def handle_payment_new_message(
     processor: PaymentProcessorService,
     settings: Settings,
     delivery_count: int = 0,
+    raw_message: IncomingMessage | None = None,
 ) -> None:
     """Process a payment-new message and map failures to broker ack actions.
 
@@ -51,6 +75,7 @@ async def handle_payment_new_message(
         processor: Service that orchestrates gateway, DB, and webhook steps.
         settings: Application settings including consumer retry limits.
         delivery_count: Number of prior delivery attempts for this message.
+        raw_message: Optional raw broker message for retry header updates.
 
     Raises:
         RejectMessage: For poison messages or after max delivery attempts.
@@ -61,7 +86,8 @@ async def handle_payment_new_message(
     except (PoisonMessageError, ValidationError) as exc:
         raise RejectMessage(requeue=False) from exc
     except Exception as exc:
-        if delivery_count + 1 >= settings.consumer_max_attempts:
+        next_attempt = delivery_count + 1
+        if next_attempt >= settings.consumer_max_attempts:
             logger.error(
                 "Rejecting message to DLQ after max attempts "
                 "payment_id=%s delivery_count=%d",
@@ -70,12 +96,14 @@ async def handle_payment_new_message(
                 exc_info=exc,
             )
             raise RejectMessage(requeue=False) from exc
+        if raw_message is not None:
+            set_retry_count(raw_message, next_attempt)
         logger.warning(
             "Transient error, nacking with requeue "
             "payment_id=%s delivery_count=%d attempt=%d/%d",
             message.payment_id,
             delivery_count,
-            delivery_count + 1,
+            next_attempt,
             settings.consumer_max_attempts,
             exc_info=exc,
         )

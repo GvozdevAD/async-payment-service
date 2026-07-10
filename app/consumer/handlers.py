@@ -41,4 +41,5 @@ def register_handlers(
             processor=processor,
             settings=settings,
             delivery_count=delivery_count,
+            raw_message=raw_message.raw_message,
         )
