@@ -9,6 +9,28 @@
 - RabbitMQ + FastStream
 - Alembic, Docker Compose
 
+## Makefile
+
+Все команды проекта — через `make`. Справка по умолчанию:
+
+```bash
+make        # то же, что make help
+make help
+```
+
+Вывод сгруппирован по блокам:
+
+| Блок | Примеры |
+|------|---------|
+| General | `env`, `install` |
+| PostgreSQL (pg) | `pg-up`, `pg-down`, `pg-logs` |
+| API | `api-dev`, `api-prod`, `gen-openapi`, `smoke` |
+| RabbitMQ (rabbit) | `rabbit-up`, `rabbit-down` |
+| Consumer | `consumer-dev`, `consumer-up`, `nginx-up` |
+| Database migrations (db) | `db-migrate`, `db-migrate-docker`, `db-revision` |
+| Code quality | `lint`, `format`, `test`, `test-cov` |
+| Full stack | `up`, `up-prod`, `down`, `logs` |
+
 ## Быстрый старт (local, API на хосте)
 
 ```bash
