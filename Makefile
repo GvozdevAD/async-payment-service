@@ -19,6 +19,7 @@ RABBIT_SERVICE   := rabbitmq
 PUBLISHER_SERVICE := publisher
 MIGRATE_SERVICE  := migrate
 CONSUMER_SERVICE := consumer
+NGINX_SERVICE    := nginx
 
 APP_ENV_LOCAL      := local
 APP_ENV_PRODUCTION := production
@@ -126,7 +127,7 @@ api-logs: ## Tail API container logs
 gen-openapi: ## Generate OpenAPI schema to docs/openapi.yaml
 	PYTHONPATH=. $(POETRY_RUN) python scripts/generate_openapi.py
 
-smoke: env ## Run API smoke tests (health, payments, idempotency)
+smoke: env ## Run API smoke tests (auto-detect :8000 or nginx :80)
 	./scripts/smoke.sh
 
 .PHONY: publisher-dev publisher-prod publisher-up publisher-down publisher-restart publisher-build publisher-logs
@@ -177,7 +178,13 @@ rabbit-logs: ## Tail RabbitMQ logs
 # @section Consumer
 # ------------------------------------------------------------------------------
 
-.PHONY: consumer-up consumer-down consumer-restart consumer-build consumer-logs
+.PHONY: consumer-dev consumer-prod consumer-up consumer-down consumer-restart consumer-build consumer-logs
+consumer-dev: env ## Run payment consumer locally (local profile)
+	APP_ENV=$(APP_ENV_LOCAL) $(POETRY_RUN) python -m app.consumer.main
+
+consumer-prod: env ## Run payment consumer locally (production profile)
+	APP_ENV=$(APP_ENV_PRODUCTION) $(POETRY_RUN) python -m app.consumer.main
+
 consumer-up: env ## Start consumer worker container
 	$(COMPOSE) up -d $(CONSUMER_SERVICE)
 
@@ -192,6 +199,20 @@ consumer-build: ## Build consumer Docker image
 
 consumer-logs: ## Tail consumer logs
 	$(COMPOSE) logs -f $(CONSUMER_SERVICE)
+
+.PHONY: nginx-up nginx-down nginx-down-v nginx-logs-prod
+nginx-up: env ## Start nginx reverse proxy (production stack)
+	$(COMPOSE_PROD) up -d $(NGINX_SERVICE)
+
+nginx-down: ## Stop nginx container (production stack)
+	$(COMPOSE_PROD) stop $(NGINX_SERVICE)
+
+nginx-down-v: ## Stop nginx and remove container (production stack)
+	$(COMPOSE_PROD) stop $(NGINX_SERVICE)
+	-$(COMPOSE_PROD) rm -f $(NGINX_SERVICE)
+
+nginx-logs-prod: ## Tail nginx logs (production stack)
+	$(COMPOSE_PROD) logs -f $(NGINX_SERVICE)
 
 # ------------------------------------------------------------------------------
 # @section Database migrations (db)
@@ -239,7 +260,7 @@ test: ## Run pytest
 up: env ## Start local Docker stack (exposed ports)
 	$(COMPOSE_LOCAL) up -d
 
-up-prod: env ## Start production Docker stack (internal network)
+up-prod: env ## Start production Docker stack (nginx :80, internal backend)
 	$(COMPOSE_PROD) up -d
 
 down: ## Stop local Docker stack
@@ -248,10 +269,12 @@ down: ## Stop local Docker stack
 down-prod: ## Stop production Docker stack
 	$(COMPOSE_PROD) stop
 
-down-v: ## Stop local stack and remove volumes
+down-v: ## Stop local stack, remove volumes, and remove prod nginx if running
+	-$(COMPOSE_PROD) stop $(NGINX_SERVICE) 2>/dev/null || true
+	-$(COMPOSE_PROD) rm -f $(NGINX_SERVICE) 2>/dev/null || true
 	$(COMPOSE_LOCAL) down -v
 
-down-v-prod: ## Stop prod stack and remove volumes
+down-v-prod: ## Stop prod stack, remove volumes, and remove nginx
 	$(COMPOSE_PROD) down -v
 
 restart: ## Restart local Docker stack

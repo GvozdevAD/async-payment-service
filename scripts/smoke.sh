@@ -4,6 +4,7 @@
 # Usage:
 #   ./scripts/smoke.sh
 #   BASE_URL=http://localhost:8000 API_KEY=secret ./scripts/smoke.sh
+#   BASE_URL=http://localhost ./scripts/smoke.sh   # prod stack via nginx
 #   make smoke
 
 set -euo pipefail
@@ -11,7 +12,26 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-BASE_URL="${BASE_URL:-http://localhost:8000}"
+resolve_base_url() {
+  local candidates=(
+    "http://localhost:8000"
+    "http://localhost"
+  )
+  local url
+  for url in "${candidates[@]}"; do
+    if curl -sf --max-time 3 "${url}/api/v1/health" >/dev/null 2>&1; then
+      echo "$url"
+      return
+    fi
+  done
+  echo "http://localhost:8000"
+}
+
+if [[ -z "${BASE_URL:-}" ]]; then
+  BASE_URL="$(resolve_base_url)"
+else
+  BASE_URL="${BASE_URL%/}"
+fi
 IDEM_KEY="${IDEM_KEY:-order-$(date +%s)}"
 
 if [[ -z "${API_KEY:-}" && -f .env ]]; then
@@ -181,6 +201,41 @@ if docker compose -p test-task ps --status running postgres 2>/dev/null | grep -
   fi
 else
   echo "       skipped (postgres container not running)"
+fi
+echo
+
+# --- Payment processing (requires consumer) ---
+bold "9. Payment status poll (consumer)"
+SMOKE_POLL_TIMEOUT_SECONDS="${SMOKE_POLL_TIMEOUT_SECONDS:-30}"
+SMOKE_POLL_INTERVAL_SECONDS="${SMOKE_POLL_INTERVAL_SECONDS:-2}"
+DEADLINE=$((SECONDS + SMOKE_POLL_TIMEOUT_SECONDS))
+FINAL_STATUS=""
+FINAL_BODY=""
+
+POLL_OK=0
+while (( SECONDS < DEADLINE )); do
+  RESP=$(curl_json GET "$BASE_URL/api/v1/payments/$PAYMENT_ID" \
+    -H "X-API-Key: $API_KEY")
+  FINAL_BODY=$(echo "$RESP" | sed '$d')
+  CODE=$(echo "$RESP" | tail -n1)
+  FINAL_STATUS=$(echo "$FINAL_BODY" | python3 -c "import sys, json; print(json.load(sys.stdin).get('status', ''))" 2>/dev/null || true)
+
+  if [[ "$CODE" == "200" && "$FINAL_STATUS" != "pending" && -n "$FINAL_STATUS" ]]; then
+    green "  OK   payment processed status=$FINAL_STATUS"
+    PASS=$((PASS + 1))
+    POLL_OK=1
+    break
+  fi
+  sleep "$SMOKE_POLL_INTERVAL_SECONDS"
+done
+
+if [[ "$POLL_OK" -eq 0 ]]; then
+  red "  FAIL payment still pending after ${SMOKE_POLL_TIMEOUT_SECONDS}s"
+  red "       hint: start consumer with make consumer-dev or make consumer-up"
+  FAIL=$((FAIL + 1))
+elif [[ "$FINAL_STATUS" != "succeeded" && "$FINAL_STATUS" != "failed" ]]; then
+  red "  FAIL unexpected payment status=$FINAL_STATUS"
+  FAIL=$((FAIL + 1))
 fi
 echo
 
