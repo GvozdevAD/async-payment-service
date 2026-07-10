@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-11
+
+### Fixed
+
+- Version test expected `0.1.0` while `pyproject.toml` declared `0.2.0`, breaking CI on `main`.
+
 ## [0.2.0] - 2026-07-11
 
 ### Added
@@ -48,7 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 100% test coverage, RFC 7807 error responses, API key authentication
 - README and OpenAPI spec (`docs/openapi.yaml`)
 
-[unreleased]: https://github.com/GvozdevAD/async-payment-service/compare/0.2.0...HEAD
+[unreleased]: https://github.com/GvozdevAD/async-payment-service/compare/0.2.1...HEAD
+[0.2.1]: https://github.com/GvozdevAD/async-payment-service/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/GvozdevAD/async-payment-service/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/GvozdevAD/async-payment-service/releases/tag/0.1.0
 [SemVer]: https://semver.org/spec/v2.0.0.html
