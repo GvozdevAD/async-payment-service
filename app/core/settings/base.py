@@ -28,6 +28,12 @@ class BaseAppSettings(BaseSettings):
     webhook_dispatcher_poll_interval_seconds: float = 5.0
     webhook_dispatcher_batch_size: int = 10
 
+    webhook_signature_enabled: bool = True
+    webhook_signing_secret: str = ""
+    webhook_allowed_schemes: tuple[str, ...] = ("https", "http")
+    webhook_allowed_ports: tuple[int, ...] = (80, 443)
+    webhook_block_private_networks: bool = True
+
     consumer_max_attempts: int = 3
     consumer_prefetch_count: int = 10
 
@@ -170,6 +176,36 @@ class BaseAppSettings(BaseSettings):
         """Ensure webhook dispatcher poll interval is positive."""
         if value <= 0:
             msg = "Webhook dispatcher poll interval must be greater than 0"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_signing_secret")
+    @classmethod
+    def validate_webhook_signing_secret(cls, value: str) -> str:
+        """Ensure a provided webhook signing secret is long enough."""
+        if value and len(value) < 16:
+            msg = "Webhook signing secret must be at least 16 characters long"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_allowed_schemes")
+    @classmethod
+    def validate_webhook_allowed_schemes(
+        cls,
+        value: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """Ensure at least one webhook URL scheme is allowed."""
+        if not value:
+            msg = "Webhook allowed schemes must not be empty"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("webhook_allowed_ports")
+    @classmethod
+    def validate_webhook_allowed_ports(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        """Ensure at least one webhook URL port is allowed."""
+        if not value:
+            msg = "Webhook allowed ports must not be empty"
             raise ValueError(msg)
         return value
 

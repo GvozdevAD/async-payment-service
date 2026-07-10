@@ -1,11 +1,14 @@
 """Webhook HTTP delivery (single attempt per call)."""
 
+import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
 from app.core.settings import Settings
+from app.core.signing import build_signature_headers
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +58,28 @@ class WebhookService:
     ) -> None:
         self._timeout = settings.webhook_timeout_seconds
         self._client = client
+        self._signing_secret = settings.webhook_signing_secret
+        self._signature_enabled = settings.webhook_signature_enabled and bool(
+            self._signing_secret
+        )
+
+    def _build_request(self, payload: dict[str, Any]) -> tuple[bytes, dict[str, str]]:
+        """Serialize the payload and build headers, signing when enabled.
+
+        Args:
+            payload: JSON-serializable webhook body.
+
+        Returns:
+            Tuple of the exact body bytes and the request headers.
+        """
+        body = json.dumps(payload, separators=(",", ":"), default=str).encode()
+        headers = {"Content-Type": "application/json"}
+        if self._signature_enabled:
+            timestamp = int(datetime.now(UTC).timestamp())
+            headers.update(
+                build_signature_headers(self._signing_secret, body, timestamp)
+            )
+        return body, headers
 
     async def deliver_once(self, url: str, payload: dict[str, Any]) -> int:
         """POST webhook payload once and return the HTTP status code.
@@ -73,8 +98,9 @@ class WebhookService:
         """
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=self._timeout)
+        body, headers = self._build_request(payload)
         try:
-            response = await client.post(url, json=payload)
+            response = await client.post(url, content=body, headers=headers)
 
             if is_retryable_status(response.status_code):
                 response.raise_for_status()

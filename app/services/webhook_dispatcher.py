@@ -8,6 +8,7 @@ import httpx
 from opentelemetry import trace
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.exceptions import UnsafeWebhookUrlError
 from app.core.metrics import record_webhook_delivery
 from app.core.propagation import (
     TRACE_CONTEXT_KEY,
@@ -15,6 +16,7 @@ from app.core.propagation import (
     strip_trace_context,
 )
 from app.core.settings import Settings
+from app.core.url_guard import ensure_webhook_destination_allowed
 from app.repositories.webhook_delivery import WebhookDeliveryRepository
 from app.services.webhook import WebhookService, is_retryable_exception
 
@@ -126,6 +128,29 @@ class WebhookDispatcherService:
                     else None
                 )
                 webhook_payload = strip_trace_context(delivery.payload)
+
+                try:
+                    await ensure_webhook_destination_allowed(
+                        delivery.url,
+                        self._settings,
+                    )
+                except UnsafeWebhookUrlError as exc:
+                    await repo.mark_failed(
+                        delivery.id,
+                        processed_at=processed_at,
+                        status_code=None,
+                        error=str(exc),
+                    )
+                    record_webhook_delivery("blocked")
+                    logger.error(
+                        "Webhook delivery blocked by SSRF policy "
+                        "delivery_id=%s payment_id=%s reason=%s",
+                        delivery.id,
+                        delivery.payment_id,
+                        exc,
+                    )
+                    return False
+
                 with tracer.start_as_current_span(
                     "webhook.dispatch",
                     context=parent_ctx,

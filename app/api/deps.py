@@ -37,11 +37,13 @@ async def verify_api_key(
 
 def get_payment_service(
     session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> PaymentService:
     """Return a payment service bound to the request database session.
 
     Args:
         session: Active async database session for the request.
+        settings: Application settings for webhook URL policy and related config.
 
     Returns:
         Payment service with request-scoped repositories.
@@ -50,4 +52,5 @@ def get_payment_service(
         session=session,
         payment_repo=PaymentRepository(session),
         outbox_repo=OutboxRepository(session),
+        settings=settings,
     )

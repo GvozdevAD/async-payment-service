@@ -60,3 +60,19 @@ class ValidationAppError(AppError):
 
     def default_detail(self) -> str:
         return "The request data is invalid."
+
+
+class UnsafeWebhookUrlError(AppError):
+    """Raised when a webhook URL violates the outbound destination policy.
+
+    Guards against SSRF by rejecting disallowed schemes/ports and hosts that
+    resolve to private, loopback, link-local, or otherwise internal addresses.
+    """
+
+    status_code = 422
+    code = "unsafe_webhook_url"
+    title = "Unsafe Webhook URL"
+    type_suffix = "unsafe-webhook-url"
+
+    def default_detail(self) -> str:
+        return "The webhook URL is not allowed."

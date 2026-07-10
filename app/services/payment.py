@@ -11,6 +11,8 @@ from app.core.exceptions import PaymentNotFoundError
 from app.core.logging import get_logger
 from app.core.metrics import record_payment_created
 from app.core.propagation import TRACE_CONTEXT_KEY, capture_trace_context
+from app.core.settings import Settings
+from app.core.url_guard import validate_webhook_url
 from app.db.enums import OutboxStatus, PaymentStatus
 from app.db.models.outbox import Outbox
 from app.db.models.payment import Payment
@@ -34,10 +36,12 @@ class PaymentService:
         session: AsyncSession,
         payment_repo: PaymentRepository,
         outbox_repo: OutboxRepository,
+        settings: Settings,
     ) -> None:
         self._session = session
         self._payment_repo = payment_repo
         self._outbox_repo = outbox_repo
+        self._settings = settings
 
     async def create_payment(
         self,
@@ -54,8 +58,10 @@ class PaymentService:
             The created or existing payment summary.
 
         Raises:
+            UnsafeWebhookUrlError: If the webhook URL violates the SSRF policy.
             IntegrityError: If commit fails for a non-idempotency reason.
         """
+        validate_webhook_url(str(data.webhook_url), self._settings)
         existing = await self._payment_repo.get_by_idempotency_key(idempotency_key)
         if existing is not None:
             return to_create_response(existing)
