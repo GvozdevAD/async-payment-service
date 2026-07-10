@@ -10,6 +10,28 @@
 - SQLAlchemy 2.0 (async) + PostgreSQL
 - RabbitMQ + FastStream
 - Alembic, Docker Compose
+- OpenTelemetry (traces + metrics via OTLP), Jaeger, Prometheus (local stack)
+
+## Observability
+
+При `OTEL_ENABLED=true` все процессы экспортируют **traces и metrics** через OTLP в `otel-collector`.
+
+| Инструмент | URL (local compose) |
+|------------|---------------------|
+| Jaeger UI | http://localhost:16686 |
+| Prometheus | http://localhost:9090 |
+
+Сквозной distributed trace: `POST /payments` → outbox → RabbitMQ → consumer → webhook dispatcher → HTTP webhook.
+
+Переменные окружения:
+
+| Env | Default | Описание |
+|-----|---------|----------|
+| `OTEL_ENABLED` | `false` | Включить traces + metrics |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP gRPC endpoint |
+| `OTEL_METRIC_EXPORT_INTERVAL_MS` | `10000` | Интервал экспорта метрик |
+
+Локальный стек observability поднимается вместе с `docker compose -f docker-compose.yaml -f docker-compose.local.yaml up`.
 
 ## Makefile
 
