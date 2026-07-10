@@ -5,4 +5,327 @@ info:
     requests, processes them through an external payment gateway (emulation), and
     notifies the client of the result via webhook.
   version: 0.1.0
-paths: {}
+paths:
+  /api/v1/health:
+    get:
+      tags:
+      - health
+      summary: Liveness
+      description: "Return API liveness status.\n\nArgs:\n    health_service: Application\
+        \ health check service.\n\nReturns:\n    Liveness response indicating the\
+        \ API process is running."
+      operationId: liveness_api_v1_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivenessResponse'
+  /api/v1/health/ready:
+    get:
+      tags:
+      - health
+      summary: Readiness
+      description: "Return API readiness status including PostgreSQL and RabbitMQ.\n\
+        \nArgs:\n    response: FastAPI response object for setting HTTP status code.\n\
+        \    session: Active async database session.\n    health_service: Application\
+        \ health check service.\n\nReturns:\n    Readiness response with dependency\
+        \ health details. HTTP 503 is set\n    when any dependency is unavailable."
+      operationId: readiness_api_v1_health_ready_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+  /api/v1/payments:
+    post:
+      tags:
+      - payments
+      summary: Create Payment
+      description: "Create a new payment for asynchronous processing.\n\nArgs:\n \
+        \   body: Payment creation payload.\n    idempotency_key: Client-supplied\
+        \ idempotency key from header.\n    payment_service: Request-scoped payment\
+        \ service.\n\nReturns:\n    Created or existing payment summary.\n\nRaises:\n\
+        \    ValidationAppError: If the idempotency key format is invalid."
+      operationId: create_payment_api_v1_payments_post
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Idempotency-Key
+      - name: X-API-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentCreateRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentCreateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - ApiKeyAuth: []
+  /api/v1/payments/{payment_id}:
+    get:
+      tags:
+      - payments
+      summary: Get Payment
+      description: "Return detailed information about a payment.\n\nArgs:\n    payment_id:\
+        \ Payment UUID from the URL path.\n    payment_service: Request-scoped payment\
+        \ service.\n\nReturns:\n    Full payment details.\n\nRaises:\n    PaymentNotFoundError:\
+        \ If the payment does not exist."
+      operationId: get_payment_api_v1_payments__payment_id__get
+      parameters:
+      - name: payment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Payment Id
+      - name: X-API-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - ApiKeyAuth: []
+components:
+  schemas:
+    ComponentHealth:
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+          - error
+          title: Status
+        detail:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Detail
+      type: object
+      required:
+      - status
+      title: ComponentHealth
+      description: Health status of a single infrastructure component.
+    Currency:
+      type: string
+      enum:
+      - RUB
+      - USD
+      - EUR
+      title: Currency
+      description: Supported payment currencies.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    LivenessResponse:
+      properties:
+        status:
+          type: string
+          const: ok
+          title: Status
+      type: object
+      required:
+      - status
+      title: LivenessResponse
+      description: Response for the API liveness probe.
+    PaymentCreateRequest:
+      properties:
+        amount:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: string
+            pattern: ^(?!^[-+.]*$)[+-]?0*(?:\d{0,18}|(?=[\d.]{1,21}0*$)\d{0,18}\.\d{0,2}0*$)
+          title: Amount
+        currency:
+          $ref: '#/components/schemas/Currency'
+        description:
+          type: string
+          maxLength: 500
+          minLength: 1
+          title: Description
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+        webhook_url:
+          type: string
+          maxLength: 2083
+          minLength: 1
+          format: uri
+          title: Webhook Url
+      type: object
+      required:
+      - amount
+      - currency
+      - description
+      - webhook_url
+      title: PaymentCreateRequest
+      description: Request body for creating a payment.
+    PaymentCreateResponse:
+      properties:
+        payment_id:
+          type: string
+          format: uuid
+          title: Payment Id
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - payment_id
+      - status
+      - created_at
+      title: PaymentCreateResponse
+      description: Response body for a created or idempotent payment request.
+    PaymentDetailResponse:
+      properties:
+        payment_id:
+          type: string
+          format: uuid
+          title: Payment Id
+        amount:
+          type: string
+          pattern: ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$
+          title: Amount
+        currency:
+          $ref: '#/components/schemas/Currency'
+        description:
+          type: string
+          title: Description
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        webhook_url:
+          type: string
+          title: Webhook Url
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        processed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Processed At
+      type: object
+      required:
+      - payment_id
+      - amount
+      - currency
+      - description
+      - metadata
+      - status
+      - webhook_url
+      - created_at
+      - processed_at
+      title: PaymentDetailResponse
+      description: Detailed payment information.
+    PaymentStatus:
+      type: string
+      enum:
+      - pending
+      - succeeded
+      - failed
+      title: PaymentStatus
+      description: Payment processing lifecycle status.
+    ReadinessResponse:
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+          - error
+          title: Status
+        postgres:
+          $ref: '#/components/schemas/ComponentHealth'
+        rabbitmq:
+          $ref: '#/components/schemas/ComponentHealth'
+      type: object
+      required:
+      - status
+      - postgres
+      - rabbitmq
+      title: ReadinessResponse
+      description: Response for the API readiness probe.
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

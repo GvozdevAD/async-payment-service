@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.core.config import get_settings
+from app.core.settings import get_settings
 from app.core.exceptions import AppException
 from app.core.logging import log_exception
 from app.core.middleware import REQUEST_ID_HEADER, get_request_id
@@ -72,7 +72,20 @@ def build_problem_response(
     type_suffix: str,
     errors: list[dict[str, Any]] | None = None,
 ) -> JSONResponse:
-    """Build and return a Problem Detail JSON response."""
+    """Build and return a Problem Detail JSON response.
+
+    Args:
+        request: Current HTTP request.
+        status_code: HTTP status code for the response.
+        title: Short human-readable error title.
+        detail: Safe client-facing error description.
+        code: Machine-readable application error code.
+        type_suffix: Suffix appended to the configured error type base URL.
+        errors: Optional structured validation errors.
+
+    Returns:
+        JSON response with application/problem+json media type.
+    """
     problem = _build_problem_detail(
         request,
         status_code=status_code,
@@ -86,7 +99,15 @@ def build_problem_response(
 
 
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
-    """Handle application-specific exceptions."""
+    """Handle application-specific exceptions.
+
+    Args:
+        request: Current HTTP request.
+        exc: Raised application exception.
+
+    Returns:
+        Problem Detail JSON response matching the exception metadata.
+    """
     _log_request_exception(request, exc)
     problem = _build_problem_detail(
         request,
@@ -103,7 +124,15 @@ async def validation_exception_handler(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
-    """Handle request validation errors."""
+    """Handle request validation errors.
+
+    Args:
+        request: Current HTTP request.
+        exc: FastAPI/Pydantic validation error.
+
+    Returns:
+        Problem Detail JSON response with validation error details.
+    """
     _log_request_exception(request, exc)
     return build_problem_response(
         request,
@@ -117,7 +146,15 @@ async def validation_exception_handler(
 
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    """Handle legacy HTTP exceptions."""
+    """Handle legacy HTTP exceptions.
+
+    Args:
+        request: Current HTTP request.
+        exc: Raised HTTPException.
+
+    Returns:
+        Problem Detail JSON response with the exception status and detail.
+    """
     _log_request_exception(request, exc)
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed."
     return build_problem_response(
@@ -131,7 +168,15 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Handle unexpected exceptions."""
+    """Handle unexpected exceptions.
+
+    Args:
+        request: Current HTTP request.
+        exc: Unhandled exception.
+
+    Returns:
+        Generic 500 Problem Detail JSON response without leaking details.
+    """
     _log_request_exception(request, exc)
     return build_problem_response(
         request,
@@ -144,7 +189,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    """Register global exception handlers on the FastAPI app."""
+    """Register global exception handlers on the FastAPI app.
+
+    Args:
+        app: FastAPI application instance.
+    """
     app.add_exception_handler(AppException, app_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)

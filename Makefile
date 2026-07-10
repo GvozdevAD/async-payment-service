@@ -5,16 +5,30 @@
 #   target: [deps] ## Description — appears under the current section
 
 PROJECT_NAME     ?= test-task
-COMPOSE          := docker compose -p $(PROJECT_NAME)
+COMPOSE_FILE_BASE  := docker-compose.yaml
+COMPOSE_FILE_LOCAL := docker-compose.local.yaml
+COMPOSE_FILE_PROD  := docker-compose.prod.yaml
+COMPOSE_LOCAL := docker compose -p $(PROJECT_NAME) \
+	-f $(COMPOSE_FILE_BASE) -f $(COMPOSE_FILE_LOCAL)
+COMPOSE_PROD := docker compose -p $(PROJECT_NAME) \
+	-f $(COMPOSE_FILE_BASE) -f $(COMPOSE_FILE_PROD)
+COMPOSE          := $(COMPOSE_LOCAL)
 PG_SERVICE       := postgres
 API_SERVICE      := api
 RABBIT_SERVICE   := rabbitmq
+PUBLISHER_SERVICE := publisher
+MIGRATE_SERVICE  := migrate
 CONSUMER_SERVICE := consumer
+NGINX_SERVICE    := nginx
+
+APP_ENV_LOCAL      := local
+APP_ENV_PRODUCTION := production
 
 API_HOST         ?= 0.0.0.0
 API_PORT         ?= 8000
 POETRY_RUN       := poetry run
 UVICORN          := $(POETRY_RUN) uvicorn app.main:app
+GUNICORN         := $(POETRY_RUN) gunicorn
 
 # ------------------------------------------------------------------------------
 # Colors
@@ -57,7 +71,7 @@ env: ## Create .env from .env.example if missing
 	@echo ".env is ready"
 
 install: ## Install project dependencies via Poetry
-	poetry install
+	poetry install --with migration
 
 # ------------------------------------------------------------------------------
 # @section PostgreSQL (pg)
@@ -88,9 +102,12 @@ pg-ps: ## Show PostgreSQL container status
 # @section API
 # ------------------------------------------------------------------------------
 
-.PHONY: api-dev api-up api-down api-restart api-build api-logs gen-openapi
-api-dev: env ## Run API locally with hot reload
-	$(UVICORN) --reload --host $(API_HOST) --port $(API_PORT)
+.PHONY: api-dev api-prod api-up api-down api-restart api-build api-logs gen-openapi
+api-dev: env ## Run API locally with hot reload (local profile)
+	APP_ENV=$(APP_ENV_LOCAL) $(UVICORN) --reload --host $(API_HOST) --port $(API_PORT)
+
+api-prod: env ## Run API with Gunicorn (production profile)
+	APP_ENV=$(APP_ENV_PRODUCTION) $(GUNICORN) -c gunicorn.conf.py app.main:app
 
 api-up: env ## Start API container (production)
 	$(COMPOSE) up -d $(API_SERVICE)
@@ -109,6 +126,31 @@ api-logs: ## Tail API container logs
 
 gen-openapi: ## Generate OpenAPI schema to docs/openapi.yaml
 	PYTHONPATH=. $(POETRY_RUN) python scripts/generate_openapi.py
+
+smoke: env ## Run API smoke tests (auto-detect :8000 or nginx :80)
+	./scripts/smoke.sh
+
+.PHONY: publisher-dev publisher-prod publisher-up publisher-down publisher-restart publisher-build publisher-logs
+publisher-dev: env ## Run outbox publisher locally (local profile)
+	APP_ENV=$(APP_ENV_LOCAL) $(POETRY_RUN) python -m app.publisher.main
+
+publisher-prod: env ## Run outbox publisher locally (production profile)
+	APP_ENV=$(APP_ENV_PRODUCTION) $(POETRY_RUN) python -m app.publisher.main
+
+publisher-up: env ## Start publisher container (local compose)
+	$(COMPOSE_LOCAL) up -d $(PUBLISHER_SERVICE)
+
+publisher-down: ## Stop publisher container
+	$(COMPOSE_LOCAL) stop $(PUBLISHER_SERVICE)
+
+publisher-restart: ## Restart publisher container
+	$(COMPOSE_LOCAL) restart $(PUBLISHER_SERVICE)
+
+publisher-build: ## Build publisher Docker image
+	$(COMPOSE_LOCAL) build $(PUBLISHER_SERVICE)
+
+publisher-logs: ## Tail publisher container logs
+	$(COMPOSE_LOCAL) logs -f $(PUBLISHER_SERVICE)
 
 # ------------------------------------------------------------------------------
 # @section RabbitMQ (rabbit)
@@ -136,7 +178,13 @@ rabbit-logs: ## Tail RabbitMQ logs
 # @section Consumer
 # ------------------------------------------------------------------------------
 
-.PHONY: consumer-up consumer-down consumer-restart consumer-build consumer-logs
+.PHONY: consumer-dev consumer-prod consumer-up consumer-down consumer-restart consumer-build consumer-logs
+consumer-dev: env ## Run payment consumer locally (local profile)
+	APP_ENV=$(APP_ENV_LOCAL) $(POETRY_RUN) python -m app.consumer.main
+
+consumer-prod: env ## Run payment consumer locally (production profile)
+	APP_ENV=$(APP_ENV_PRODUCTION) $(POETRY_RUN) python -m app.consumer.main
+
 consumer-up: env ## Start consumer worker container
 	$(COMPOSE) up -d $(CONSUMER_SERVICE)
 
@@ -152,13 +200,33 @@ consumer-build: ## Build consumer Docker image
 consumer-logs: ## Tail consumer logs
 	$(COMPOSE) logs -f $(CONSUMER_SERVICE)
 
+.PHONY: nginx-up nginx-down nginx-down-v nginx-logs-prod
+nginx-up: env ## Start nginx reverse proxy (production stack)
+	$(COMPOSE_PROD) up -d $(NGINX_SERVICE)
+
+nginx-down: ## Stop nginx container (production stack)
+	$(COMPOSE_PROD) stop $(NGINX_SERVICE)
+
+nginx-down-v: ## Stop nginx and remove container (production stack)
+	$(COMPOSE_PROD) stop $(NGINX_SERVICE)
+	-$(COMPOSE_PROD) rm -f $(NGINX_SERVICE)
+
+nginx-logs-prod: ## Tail nginx logs (production stack)
+	$(COMPOSE_PROD) logs -f $(NGINX_SERVICE)
+
 # ------------------------------------------------------------------------------
 # @section Database migrations (db)
 # ------------------------------------------------------------------------------
 
-.PHONY: db-migrate db-revision db-downgrade
+.PHONY: db-migrate db-migrate-docker db-migrate-prod db-revision db-downgrade
 db-migrate: env ## Apply Alembic migrations
 	$(POETRY_RUN) alembic upgrade head
+
+db-migrate-docker: env ## Re-apply migrations via Docker (after new Alembic revisions)
+	$(COMPOSE_LOCAL) run --rm $(MIGRATE_SERVICE)
+
+db-migrate-prod: env ## Re-apply migrations via prod Docker (after new Alembic revisions)
+	$(COMPOSE_PROD) run --rm $(MIGRATE_SERVICE)
 
 db-revision: env ## Create new Alembic revision (use MSG='description')
 	@test -n "$(MSG)" || (echo "Usage: make db-revision MSG='add payments table'" && exit 1)
@@ -171,7 +239,7 @@ db-downgrade: env ## Roll back one migration
 # @section Code quality
 # ------------------------------------------------------------------------------
 
-.PHONY: lint lint-fix format test
+.PHONY: lint lint-fix format test test-cov
 lint: ## Run Ruff linter
 	$(POETRY_RUN) ruff check .
 
@@ -184,25 +252,39 @@ format: ## Format code with Ruff
 test: ## Run pytest
 	$(POETRY_RUN) pytest
 
+test-cov: ## Run pytest with coverage report (requires PostgreSQL)
+	$(POETRY_RUN) pytest --cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=100
+
 # ------------------------------------------------------------------------------
 # @section Full stack
 # ------------------------------------------------------------------------------
 
-.PHONY: up down down-v restart ps logs
-up: env ## Start all services
-	$(COMPOSE) up -d
+.PHONY: up up-prod down down-prod down-v down-v-prod restart ps logs
+up: env ## Start local Docker stack (exposed ports)
+	$(COMPOSE_LOCAL) up -d
 
-down: ## Stop all services
-	$(COMPOSE) stop
+up-prod: env ## Start production Docker stack (nginx :80, internal backend)
+	$(COMPOSE_PROD) up -d
 
-down-v: ## Stop all services and remove volumes
-	$(COMPOSE) down -v
+down: ## Stop local Docker stack
+	$(COMPOSE_LOCAL) stop
 
-restart: ## Restart all services
-	$(COMPOSE) restart
+down-prod: ## Stop production Docker stack
+	$(COMPOSE_PROD) stop
+
+down-v: ## Stop local stack, remove volumes, and remove prod nginx if running
+	-$(COMPOSE_PROD) stop $(NGINX_SERVICE) 2>/dev/null || true
+	-$(COMPOSE_PROD) rm -f $(NGINX_SERVICE) 2>/dev/null || true
+	$(COMPOSE_LOCAL) down -v
+
+down-v-prod: ## Stop prod stack, remove volumes, and remove nginx
+	$(COMPOSE_PROD) down -v
+
+restart: ## Restart local Docker stack
+	$(COMPOSE_LOCAL) restart
 
 ps: ## Show status of all containers
-	$(COMPOSE) ps
+	$(COMPOSE_LOCAL) ps
 
 logs: ## Tail logs of all services
-	$(COMPOSE) logs -f
+	$(COMPOSE_LOCAL) logs -f

@@ -42,16 +42,12 @@ class PaymentNotFoundError(AppException):
         return "The requested payment was not found."
 
 
-class DuplicateIdempotencyKeyError(AppException):
-    """Raised when an idempotency key was already used."""
+class PoisonMessageError(Exception):
+    """Unrecoverable queue message — should be rejected to DLQ.
 
-    status_code = 409
-    code = "duplicate_idempotency_key"
-    title = "Conflict"
-    type_suffix = "duplicate-idempotency-key"
-
-    def default_detail(self) -> str:
-        return "A payment with this idempotency key already exists."
+    Intentionally not an AppException: this is a messaging-layer error,
+    not an HTTP API error.
+    """
 
 
 class ValidationAppError(AppException):

@@ -3,11 +3,11 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.core.config import get_settings
+from app.core.settings.migration import get_migration_settings
 from app.db.base import Base
 
 config = context.config
-settings = get_settings()
+settings = get_migration_settings()
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

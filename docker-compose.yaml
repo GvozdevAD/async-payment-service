@@ -1,14 +1,36 @@
+x-app-env: &app-env
+  DATABASE_URL: postgresql+asyncpg://payments:payments@postgres:5432/payments
+  DATABASE_URL_SYNC: postgresql+psycopg://payments:payments@postgres:5432/payments
+  RABBITMQ_URL: amqp://payments:payments@rabbitmq:5672/payments
+  API_KEY: ${API_KEY:-change-me-in-production}
+  ERROR_TYPE_BASE: ${ERROR_TYPE_BASE:-https://payments.local/errors}
+  LOG_LEVEL: INFO
+  OUTBOX_POLL_INTERVAL_SECONDS: 5
+  OUTBOX_BATCH_SIZE: 10
+  OUTBOX_PUBLISH_MAX_ATTEMPTS: 3
+  GATEWAY_MIN_DELAY_SECONDS: 2
+  GATEWAY_MAX_DELAY_SECONDS: 5
+  GATEWAY_SUCCESS_RATE: 0.9
+  WEBHOOK_MAX_ATTEMPTS: 3
+  WEBHOOK_TIMEOUT_SECONDS: 10
+  CONSUMER_MAX_ATTEMPTS: 3
+  CONSUMER_PREFETCH_COUNT: 10
+  RABBITMQ_EXCHANGE: payments
+  RABBITMQ_PAYMENTS_NEW_QUEUE: payments.new
+  RABBITMQ_PAYMENTS_NEW_DLQ: payments.new.dlq
+  RABBITMQ_PAYMENTS_NEW_ROUTING_KEY: payments.new
+
 services:
   postgres:
     build:
       context: .
       dockerfile: dockerfiles/postgresql/Dockerfile
-    env_file:
-      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-payments}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-payments}
+      POSTGRES_DB: ${POSTGRES_DB:-payments}
     volumes:
       - postgres_data:/var/lib/postgresql
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -17,20 +39,89 @@ services:
       start_period: 10s
 
   rabbitmq:
-    image: rabbitmq:4.0-management
-    env_file:
-      - .env
+    image: rabbitmq:4.3.2-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-payments}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-payments}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-payments}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  api:
+    build:
+      context: .
+      dockerfile: dockerfiles/app/Dockerfile
+    environment:
+      <<: *app-env
+      APP_ENV: production
+    command: python -m gunicorn -c gunicorn.conf.py app.main:app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  publisher:
+    build:
+      context: .
+      dockerfile: dockerfiles/app/Dockerfile
+    environment:
+      <<: *app-env
+      APP_ENV: production
+    command: python -m app.publisher.main
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  consumer:
+    build:
+      context: .
+      dockerfile: dockerfiles/app/Dockerfile
+    environment:
+      <<: *app-env
+      APP_ENV: production
+    command: python -m app.consumer.main
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    build:
+      context: .
+      dockerfile: dockerfiles/migration/Dockerfile
+    environment:
+      <<: *app-env
+      APP_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+networks:
+  payments-net:
+    driver: bridge
 
 volumes:
   postgres_data:

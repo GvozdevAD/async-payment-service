@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings, get_settings
+from app.core.settings import Settings, get_settings
 from app.core.logging import get_logger
 from app.schemas.health import ComponentHealth, LivenessResponse, ReadinessResponse
 
@@ -21,11 +21,22 @@ class HealthService:
         self._settings = settings
 
     def get_liveness(self) -> LivenessResponse:
-        """Return API liveness status."""
+        """Return API liveness status.
+
+        Returns:
+            Liveness response indicating the API process is running.
+        """
         return LivenessResponse(status="ok")
 
     async def check_postgres(self, session: AsyncSession) -> ComponentHealth:
-        """Verify PostgreSQL connectivity."""
+        """Verify PostgreSQL connectivity.
+
+        Args:
+            session: Active async database session.
+
+        Returns:
+            Component health with ok or error status.
+        """
         try:
             await session.execute(text("SELECT 1"))
         except SQLAlchemyError:
@@ -34,7 +45,11 @@ class HealthService:
         return ComponentHealth(status="ok")
 
     async def check_rabbitmq(self) -> ComponentHealth:
-        """Verify RabbitMQ connectivity."""
+        """Verify RabbitMQ connectivity.
+
+        Returns:
+            Component health with ok or error status.
+        """
         try:
             connection = await aio_pika.connect_robust(self._settings.rabbitmq_url)
             await connection.close()
@@ -44,7 +59,14 @@ class HealthService:
         return ComponentHealth(status="ok")
 
     async def get_readiness(self, session: AsyncSession) -> ReadinessResponse:
-        """Return readiness status for all dependencies."""
+        """Return readiness status for all dependencies.
+
+        Args:
+            session: Active async database session for PostgreSQL check.
+
+        Returns:
+            Aggregated readiness response for PostgreSQL and RabbitMQ.
+        """
         postgres = await self.check_postgres(session)
         rabbitmq = await self.check_rabbitmq()
 
@@ -59,5 +81,9 @@ class HealthService:
 
 
 def get_health_service() -> HealthService:
-    """Return a health service instance."""
+    """Return a health service instance.
+
+    Returns:
+        Health service configured from application settings.
+    """
     return HealthService(settings=get_settings())

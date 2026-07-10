@@ -4,7 +4,14 @@ from enum import StrEnum
 
 
 def enum_values(enum: type[StrEnum]) -> list[str]:
-    """Return enum member values for SQLAlchemy Enum configuration."""
+    """Return enum member values for SQLAlchemy Enum configuration.
+
+    Args:
+        enum: StrEnum class to extract values from.
+
+    Returns:
+        List of enum member string values.
+    """
     return [member.value for member in enum]
 
 
